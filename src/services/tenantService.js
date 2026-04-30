@@ -1,63 +1,109 @@
 const supabase = require('../lib/supabaseClient');
 const { isAdmin } = require('../utils/auth');
 
-// ⚠️ CONFIRM: table name may differ
-const TENANTS_TABLE = 'tenants';
-// ⚠️ CONFIRM: column name may be 'phone', 'no_hp', 'wa_number', 'no_wa'
-const WA_NUMBER_COLUMN = 'whatsapp_number';
+const KAMAR_TABLE = 'kamar';
+const OCCUPIED_STATUS = 'Terisi';
 
 /**
- * Normalizes a WhatsApp JID to a digits-only phone number string.
- * Handles formats like "628123@s.whatsapp.net" or "628123:3@s.whatsapp.net".
+ * Normalizes a WhatsApp JID or Indonesian phone number to a canonical
+ * digits-only 62-prefixed phone number.
  *
- * @param {string} rawUserId - WhatsApp JID or any raw user identifier
- * @returns {string} digits-only phone number, e.g. "628123"
+ * Examples:
+ * - 08123456789 -> 628123456789
+ * - 628123456789@s.whatsapp.net -> 628123456789
+ * - 8123456789 -> 628123456789
+ *
+ * @param {string} rawUserId - WhatsApp JID or raw phone value.
+ * @returns {string} canonical phone number, or empty string if unavailable.
  */
 function normalizePhone(rawUserId) {
-  return String(rawUserId || '')
-    .split('@')[0]       // strip @s.whatsapp.net (and everything after)
-    .split(':')[0]       // strip :X device suffix
-    .replace(/[^\d]/g, ''); // strip all remaining non-digit characters
+  const digits = String(rawUserId || '')
+    .trim()
+    .split('@')[0]
+    .split(':')[0]
+    .replace(/[^\d]/g, '');
+
+  if (!digits) return '';
+
+  if (digits.startsWith('0')) {
+    return `62${digits.slice(1)}`;
+  }
+
+  if (digits.startsWith('8')) {
+    return `62${digits}`;
+  }
+
+  return digits;
+}
+
+function mapKamarToTenant(row) {
+  if (!row) return null;
+
+  const building = row.gedung || null;
+
+  return {
+    id: row.id,
+    name: row.nama_penyewa,
+    whatsapp_number: row.hp_penyewa,
+
+    kamar_id: row.id,
+    gedung_id: row.gedung_id,
+    nomor_kamar: row.nomor_kamar,
+    nama_penyewa: row.nama_penyewa,
+    hp_penyewa: row.hp_penyewa,
+    status_kamar: row.status_kamar,
+    gedung: building,
+
+    rooms: {
+      id: row.id,
+      code: row.nomor_kamar,
+      buildings: {
+        id: building?.id || row.gedung_id,
+        name: building?.nama || null,
+      },
+    },
+  };
 }
 
 /**
- * Looks up an active tenant by their normalized WhatsApp number from Supabase.
- * Only selects non-sensitive fields — never exposes KTP, home address, or parent contacts.
+ * Looks up an occupied Martinos room/tenant by WhatsApp number.
+ * Only selects non-sensitive fields from kamar and gedung.
  *
- * @param {string} phone - raw WhatsApp JID or phone number (will be normalized internally)
- * @returns {Promise<Object|null>} tenant row with room and building data, or null on error/not found
+ * @param {string} phone - raw WhatsApp JID or phone number.
+ * @returns {Promise<Object|null>} mapped tenant record, or null if not found.
  */
 async function getTenantByWhatsAppNumber(phone) {
   const normalized = normalizePhone(phone);
+  if (!normalized) return null;
 
   try {
     const { data, error } = await supabase
-      .from(TENANTS_TABLE)
+      .from(KAMAR_TABLE)
       .select(`
         id,
-        name,
-        ${WA_NUMBER_COLUMN},
-        rooms:room_id (
+        gedung_id,
+        nomor_kamar,
+        nama_penyewa,
+        hp_penyewa,
+        status_kamar,
+        gedung:gedung_id (
           id,
-          code,
-          floor,
-          buildings:building_id (
-            id,
-            name,
-            code
-          )
+          nama
         )
       `)
-      .eq(WA_NUMBER_COLUMN, normalized)
-      .eq('is_active', true) // ⚠️ CONFIRM: column name may differ (e.g. 'active', 'status')
-      .maybeSingle();
+      .eq('status_kamar', OCCUPIED_STATUS)
+      .not('hp_penyewa', 'is', null);
 
     if (error) {
       console.error('Error querying tenant by WhatsApp number:', error);
       return null;
     }
 
-    return data || null;
+    const matched = (data || []).find(
+      (row) => normalizePhone(row.hp_penyewa) === normalized,
+    );
+
+    return mapKamarToTenant(matched);
   } catch (err) {
     console.error('Unexpected error in getTenantByWhatsAppNumber:', err);
     return null;
@@ -68,9 +114,7 @@ async function getTenantByWhatsAppNumber(phone) {
  * Resolves the role of a WhatsApp sender.
  * Possible roles: 'admin', 'tenant', 'unknown'.
  *
- * Never throws — all errors are caught internally.
- *
- * @param {string} userId - WhatsApp JID of the message sender
+ * @param {string} userId - WhatsApp JID of the message sender.
  * @returns {Promise<{ role: 'admin'|'tenant'|'unknown', tenant: Object|null }>}
  */
 async function resolveRole(userId) {
@@ -94,5 +138,5 @@ async function resolveRole(userId) {
 module.exports = {
   resolveRole,
   getTenantByWhatsAppNumber,
-  normalizePhone
+  normalizePhone,
 };

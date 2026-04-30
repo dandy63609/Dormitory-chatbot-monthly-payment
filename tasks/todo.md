@@ -150,7 +150,7 @@ Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `
 - [ ] Add `/kos_info` admin menu
 - [ ] Add `DEPRECATED_COMMANDS` handler
 - [ ] Update Bu Sri persona
-- [ ] Implement `tenantService` role lookup using `kamar.hp_penyewa`
+- [x] Implement `tenantService` role lookup using `kamar.hp_penyewa`
 - [ ] Implement `electricityService` using `tagihan_listrik`
 - [ ] Implement `/status_bayar_info`
 - [ ] Implement `/bayar_listrik`
