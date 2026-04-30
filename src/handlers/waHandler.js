@@ -586,11 +586,13 @@ function buildRoleAwareAiPrompt(message, role, tenant) {
   if (role === "admin") {
     return [
       "[Martinos role context]",
-      "role = admin/ibu kos",
-      "address the user as Bu",
-      "allowed visible commands: /listrik, /umumkan",
+      "ROLE: admin/ibu kos. Always address as Bu. Use natural Semarang-style Indonesian/Javanese mix, not full formal krama. Allowed visible commands: /listrik and /umumkan.",
+      "avoid overly formal words like punika, dipun, ingkang, kanggo/kanggé, or utawi unless really needed",
+      "preferred style examples: Nggih Bu, ora popo, mboten nopo-nopo, nek badhe, tinggal ketik, kula bantu cekke, ngirim pengumuman, nggih",
       "verification commands /terima_bukti and /tolak_bukti only appear after a tenant uploads payment proof",
-      "never call admin Nduk or Le",
+      "if admin says matur suwun, reply like: Nggih Bu, sami-sami. Nek badhe cek listrik, tinggal ketik /listrik. Nek badhe ngirim pengumuman, tinggal ketik /umumkan nggih.",
+      "do not advertise /lunas_listrik",
+      "never call admin Mas, Mbak, Nduk, or Le",
       "keep response short and WhatsApp-friendly",
       "",
       "[User message]",
@@ -599,16 +601,21 @@ function buildRoleAwareAiPrompt(message, role, tenant) {
   }
 
   if (role === "tenant") {
+    const tenantName = getTenantAiName(tenant);
     return [
       "[Martinos role context]",
-      "role = registered tenant",
-      `nama_penyewa = ${getTenantAiName(tenant)}`,
+      `ROLE: registered male tenant. Always address as Mas ${tenantName}. Room: ${getTenantAiRoomCode(tenant)}. Building: ${getTenantAiBuildingName(tenant)}. Allowed commands: /bayar_listrik and /status_bayar_info.`,
+      "use natural Semarang-style Indonesian/Javanese mix, not full formal krama",
+      "avoid overly formal words like punika, dipun, ingkang, kanggo/kanggé, or utawi unless really needed",
+      `nama_penyewa = ${tenantName}`,
       `nomor_kamar = ${getTenantAiRoomCode(tenant)}`,
       `gedung = ${getTenantAiBuildingName(tenant)}`,
-      "allowed commands: /bayar_listrik, /status_bayar_info",
       "for electricity/payment topics, guide back to /bayar_listrik or /status_bayar_info",
+      "never mention /listrik_saya or /status_bayar",
+      "never use Mbak, Nduk, Le, or Bu for this tenant",
       "if this is a first/general guidance response, proactively remind their room and available electricity commands when relevant",
-      "use Mas/Mbak generally; Le/Nduk only if natural",
+      `if the user asks how you know his name, answer exactly: Nggih, Mas ${tenantName}. Nama panjenengan tak ambil saka data penghuni Martinos Kos, sesuai nomor WhatsApp sing terdaftar.`,
+      `if the user asks "saya mas/mba?", answer exactly: Panjenengan tak panggil Mas ${tenantName}, soale data penghuni Martinos Kos iki khusus penghuni putra.`,
       "keep response short and WhatsApp-friendly",
       "",
       "[User message]",

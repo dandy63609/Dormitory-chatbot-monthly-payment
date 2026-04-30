@@ -69,7 +69,7 @@ Deprecated old Fuenzer commands:
 5. Ask tenant to choose `CASH` or `TRANSFER`.
 `CASH`:
 - Store pending method = `cash`
-- Reply: `Nggih, Mas/Mbak. Nek bayar cash, tulung taruh uang listrik Rp55.000 nang tempat biasa, yaitu di atas kulkas. Sawise ditaruh, foto uangnya ya. Kirim fotone neng chat iki, nanti tak teruske ke admin.`
+- Reply: `Nggih, Mas {nama_penyewa}. Nek bayar cash, tulung taruh uang listrik Rp55.000 nang tempat biasa, yaitu di atas kulkas. Sawise ditaruh, foto uangnya ya. Kirim fotone neng chat iki, nanti tak teruske ke admin.`
 `TRANSFER`:
 - Store pending method = `transfer`
 - Show `MARTINOS_BANK_NAME`, `MARTINOS_BANK_ACCOUNT`, `MARTINOS_BANK_ACCOUNT_NAME`

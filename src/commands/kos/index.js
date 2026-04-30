@@ -71,6 +71,10 @@ function getTenantName(tenant) {
   return tenant?.nama_penyewa || tenant?.name || 'Penghuni';
 }
 
+function getTenantMasName(tenant) {
+  return `Mas ${getTenantName(tenant)}`;
+}
+
 function getTenantBuildingName(tenant) {
   return tenant?.gedung?.nama || tenant?.rooms?.buildings?.name || '-';
 }
@@ -125,7 +129,7 @@ function buildKosInfoMenu() {
 
 function buildTenantInfoMenu(tenant) {
   return fmt([
-    '> *Halo, Mas/Mbak!* 🏠',
+    `> *Sugeng rawuh, ${getTenantMasName(tenant)}!* 🏠`,
     '',
     `Panjenengan terdaftar sebagai penghuni *${getTenantBuildingLabel(tenant)}*.`,
     `Kamar panjenengan: *${getTenantRoomCode(tenant)}*.`,
@@ -251,6 +255,7 @@ async function handleStatusBayarInfo(tenant) {
     return fmt([
       `> *STATUS BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
       '',
+      `Nggih, ${getTenantMasName(tenant)}.`,
       `Kamar: *${getTenantRoomCode(tenant)}*`,
       'Tagihan listrik bulan ini belum tersedia.',
     ]);
@@ -259,6 +264,7 @@ async function handleStatusBayarInfo(tenant) {
   return fmt([
     `> *STATUS BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
     '',
+    `Nggih, ${getTenantMasName(tenant)}.`,
     `Kamar: *${getTenantRoomCode(tenant)}*`,
     `Periode: *${bulan} ${tahun}*`,
     `Nominal: *${formatRupiah(getNominal())}*`,
@@ -279,6 +285,7 @@ async function handleBayarListrik(userId, tenant) {
     return fmt([
       `> *TAGIHAN LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
       '',
+      `Nggih, ${getTenantMasName(tenant)}.`,
       `Kamar: *${getTenantRoomCode(tenant)}*`,
       'Tagihan listrik bulan ini belum tersedia. Hubungi ibu kos ya.',
     ]);
@@ -296,6 +303,7 @@ async function handleBayarListrik(userId, tenant) {
   return fmt([
     `> *BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
     '',
+    `Nggih, ${getTenantMasName(tenant)}.`,
     `Kamar: *${getTenantRoomCode(tenant)}*`,
     `Nominal: *${formatRupiah(getNominal())}*`,
     formatBillStatus(bill),
@@ -311,7 +319,7 @@ function handleCashChoice(userId) {
 
   setPending(pendingTenantPayments, userId, { ...pending, method: 'cash' });
 
-  return `Nggih, Mas/Mbak. Nek bayar cash, tulung taruh uang listrik ${formatRupiah(getNominal())} nang tempat biasa, yaitu di atas kulkas. Sawise ditaruh, foto uangnya ya. Kirim fotone neng chat iki, nanti tak teruske ke admin.`;
+  return `Nggih, ${getTenantMasName(pending.tenant)}. Nek bayar cash, tulung taruh uang listrik ${formatRupiah(getNominal())} nang tempat biasa, yaitu di atas kulkas. Sawise ditaruh, foto uangnya ya. Kirim fotone neng chat iki, nanti tak teruske ke admin.`;
 }
 
 function handleTransferChoice(userId) {
@@ -327,6 +335,7 @@ function handleTransferChoice(userId) {
   return fmt([
     '> *Transfer Listrik Martinos Kos*',
     '',
+    `Nggih, ${getTenantMasName(pending.tenant)}.`,
     `Nominal: *${formatRupiah(getNominal())}*`,
     `Bank: *${bankName}*`,
     `No. Rekening: *${bankAccount}*`,
