@@ -64,13 +64,13 @@ Deprecated old Fuenzer commands:
 `/bayar_listrik`:
 1. Detect current month/year.
 2. Find tenant from `kamar.hp_penyewa`.
-3. Find `tagihan_listrik` by `kamar.id + bulan + tahun`.
+3. Find or create `tagihan_listrik` by `kamar.id + bulan + tahun`.
 4. Show amount from `MARTINOS_LISTRIK_NOMINAL`, default `55000`.
-5. Ask tenant to choose `CASH` or `TRANSFER`.
-`CASH`:
+5. Ask tenant to choose `/cash` or `/transfer`.
+`/cash` or `cash`:
 - Store pending method = `cash`
-- Reply: `Nggih, Mas {nama_penyewa}. Nek bayar cash, tulung taruh uang listrik Rp55.000 nang tempat biasa, yaitu di atas kulkas. Sawise ditaruh, foto uangnya ya. Kirim fotone neng chat iki, nanti tak teruske ke admin.`
-`TRANSFER`:
+- Reply: `Nggih Mas {nama_penyewa}. Kirim bukti foto uang sampun diletakkan nggih.`
+`/transfer` or `transfer`:
 - Store pending method = `transfer`
 - Show `MARTINOS_BANK_NAME`, `MARTINOS_BANK_ACCOUNT`, `MARTINOS_BANK_ACCOUNT_NAME`
 - Ask tenant to send screenshot/photo proof

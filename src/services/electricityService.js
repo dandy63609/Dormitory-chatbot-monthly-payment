@@ -110,6 +110,7 @@ async function getCurrentTenantBill(kamarId, bulan, tahun) {
     .eq('kamar_id', kamarId)
     .eq('bulan', month)
     .eq('tahun', year)
+    .limit(1)
     .maybeSingle();
 
   if (error) {
@@ -117,6 +118,43 @@ async function getCurrentTenantBill(kamarId, bulan, tahun) {
   }
 
   return data || null;
+}
+
+async function getOrCreateCurrentTenantBill(kamarId, bulan, tahun) {
+  if (!kamarId) {
+    throw new Error('Kamar ID wajib diisi.');
+  }
+
+  const month = parseMonth(bulan);
+  const year = parseYear(tahun);
+  const existingBill = await getCurrentTenantBill(kamarId, month, year);
+
+  if (existingBill) {
+    return existingBill;
+  }
+
+  const { data, error } = await supabase
+    .from(TAGIHAN_TABLE)
+    .insert({
+      kamar_id: kamarId,
+      bulan: month,
+      tahun: year,
+      status_bayar: 'belum_bayar',
+      metode_bayar: null,
+      tanggal_bayar: null,
+    })
+    .select('id, kamar_id, bulan, tahun, status_bayar, metode_bayar, tanggal_bayar')
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Gagal membuat tagihan listrik penghuni: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error('Tagihan listrik penghuni gagal dibuat.');
+  }
+
+  return data;
 }
 
 async function getElectricitySummary(bulan, tahun) {
@@ -328,6 +366,7 @@ async function getOwnElectricityStatus(kamarId, bulan, tahun) {
 module.exports = {
   parseMonth,
   getCurrentTenantBill,
+  getOrCreateCurrentTenantBill,
   getElectricitySummary,
   getUnpaidTenants,
   markElectricityPaidByTagihanId,
