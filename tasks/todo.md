@@ -151,7 +151,7 @@ Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `
 - [ ] Add `DEPRECATED_COMMANDS` handler
 - [ ] Update Bu Sri persona
 - [x] Implement `tenantService` role lookup using `kamar.hp_penyewa`
-- [ ] Implement `electricityService` using `tagihan_listrik`
+- [x] Implement `electricityService` using `tagihan_listrik`
 - [ ] Implement `/status_bayar_info`
 - [ ] Implement `/bayar_listrik`
 - [ ] Implement `CASH` / `TRANSFER` pending state
