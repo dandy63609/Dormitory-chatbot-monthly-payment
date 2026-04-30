@@ -1,5 +1,25 @@
 const supabase = require('../lib/supabaseClient');
 
+let warnedMissingAiLogs = false;
+
+function isMissingTableError(error, tableName) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    error?.code === '42P01' ||
+    message.includes(tableName) && (
+      message.includes('does not exist') ||
+      message.includes('could not find') ||
+      message.includes('schema cache')
+    )
+  );
+}
+
+function warnMissingAiLogsOnce() {
+  if (warnedMissingAiLogs) return;
+  warnedMissingAiLogs = true;
+  console.warn('AI usage logging disabled: ai_logs table is missing.');
+}
+
 async function logCommand(userId, platform, command) {
   try {
     const payload = {
@@ -38,9 +58,19 @@ async function logAIUsage(userId, platform, model, prompt, inputTokens, outputTo
 
     const { error } = await supabase.from('ai_logs').insert(payload);
     if (error) {
+      if (isMissingTableError(error, 'ai_logs')) {
+        warnMissingAiLogsOnce();
+        return;
+      }
+
       console.error('Failed to write AI usage log:', error.message);
     }
   } catch (error) {
+    if (isMissingTableError(error, 'ai_logs')) {
+      warnMissingAiLogsOnce();
+      return;
+    }
+
     console.error('Unexpected AI usage log error:', error.message);
   }
 }

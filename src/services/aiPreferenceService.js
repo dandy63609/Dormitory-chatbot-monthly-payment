@@ -1,6 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 
 const DEFAULT_AI_MODEL_ALIAS = "gpt-oss";
+let warnedMissingUserPreferences = false;
 
 const AI_MODELS = {
   "gpt-oss": {
@@ -156,6 +157,26 @@ function getDefaultModelId() {
   return AI_MODELS[DEFAULT_AI_MODEL_ALIAS].id;
 }
 
+function isMissingTableError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    error?.code === "42P01" ||
+    message.includes("user_preferences") && (
+      message.includes("does not exist") ||
+      message.includes("could not find") ||
+      message.includes("schema cache")
+    )
+  );
+}
+
+function warnMissingUserPreferencesOnce() {
+  if (warnedMissingUserPreferences) return;
+  warnedMissingUserPreferences = true;
+  console.warn(
+    "AI preferences disabled: user_preferences table is missing; using default model.",
+  );
+}
+
 function getModelAliasList() {
   return Object.entries(AI_MODELS).map(([alias, model]) => ({
     alias,
@@ -299,6 +320,11 @@ async function getActiveModel(userId, platform) {
     .maybeSingle();
 
   if (error && error.code !== "PGRST116") {
+    if (isMissingTableError(error)) {
+      warnMissingUserPreferencesOnce();
+      return getDefaultModelId();
+    }
+
     console.error(
       `Error fetching AI preference for ${normalizedPlatform}/${normalizedUserId}:`,
       error,
@@ -338,6 +364,11 @@ async function setActiveModel(userId, platform, alias) {
     .maybeSingle();
 
   if (existingError && existingError.code !== "PGRST116") {
+    if (isMissingTableError(existingError)) {
+      warnMissingUserPreferencesOnce();
+      return getDefaultModelId();
+    }
+
     console.error(
       `Error checking AI preference for ${normalizedPlatform}/${normalizedUserId}:`,
       existingError,
@@ -353,6 +384,11 @@ async function setActiveModel(userId, platform, alias) {
       .eq("platform", normalizedPlatform);
 
     if (updateError) {
+      if (isMissingTableError(updateError)) {
+        warnMissingUserPreferencesOnce();
+        return getDefaultModelId();
+      }
+
       console.error(
         `Error updating AI preference for ${normalizedPlatform}/${normalizedUserId}:`,
         updateError,
@@ -371,6 +407,11 @@ async function setActiveModel(userId, platform, alias) {
       ]);
 
     if (insertError) {
+      if (isMissingTableError(insertError)) {
+        warnMissingUserPreferencesOnce();
+        return getDefaultModelId();
+      }
+
       console.error(
         `Error creating AI preference for ${normalizedPlatform}/${normalizedUserId}:`,
         insertError,

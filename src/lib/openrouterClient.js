@@ -27,6 +27,8 @@ const openai = new OpenAI({
 const FORCED_OPENROUTER_MODEL_ID =
   "meta-llama/llama-3.2-11b-vision-instruct:free";
 const modelName = FORCED_OPENROUTER_MODEL_ID;
+const DEFAULT_OPENROUTER_MODEL_ID =
+  AI_MODELS["gpt-oss"]?.id || FORCED_OPENROUTER_MODEL_ID;
 const RPM_LIMIT = parseInt(
   process.env.OPENROUTER_RPM_LIMIT || process.env.GEMINI_RPM_LIMIT || "15",
   10,
@@ -200,8 +202,16 @@ async function askGeminiDetailed(message, userId, platform, logUserId) {
       );
     }
 
-    const preferredModelId = await getActiveModel(userId, platform);
-    modelId = preferredModelId || FORCED_OPENROUTER_MODEL_ID;
+    try {
+      const preferredModelId = await getActiveModel(userId, platform);
+      modelId = preferredModelId || DEFAULT_OPENROUTER_MODEL_ID;
+    } catch (preferenceError) {
+      console.warn(
+        "AI preference lookup failed; using default model:",
+        preferenceError.message,
+      );
+      modelId = DEFAULT_OPENROUTER_MODEL_ID;
+    }
 
     // Log untuk debugging
     console.log(
@@ -240,16 +250,20 @@ async function askGeminiDetailed(message, userId, platform, logUserId) {
 
     const aiLogUserId = typeof logUserId === "string" ? logUserId : userId;
 
-    await logAIUsage(
-      aiLogUserId,
-      platform,
-      modelId,
-      typeof message === "string"
-        ? message
-        : String(coerceAiInput(message).text || ""),
-      usage.promptTokenCount,
-      usage.candidatesTokenCount,
-    );
+    try {
+      await logAIUsage(
+        aiLogUserId,
+        platform,
+        modelId,
+        typeof message === "string"
+          ? message
+          : String(coerceAiInput(message).text || ""),
+        usage.promptTokenCount,
+        usage.candidatesTokenCount,
+      );
+    } catch (logError) {
+      console.warn("AI usage logging failed; continuing response:", logError.message);
+    }
 
     return {
       text: finalMessageWA,
