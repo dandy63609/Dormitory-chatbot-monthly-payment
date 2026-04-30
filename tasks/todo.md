@@ -147,18 +147,18 @@ Create/update:
 Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `.env`
 ## 9. Implementation Checklist
 - [ ] White-label `/start` and `/info`
-- [ ] Add `/kos_info` admin menu
+- [x] Add `/kos_info` admin menu
 - [ ] Add `DEPRECATED_COMMANDS` handler
 - [ ] Update Bu Sri persona
 - [x] Implement `tenantService` role lookup using `kamar.hp_penyewa`
 - [x] Implement `electricityService` using `tagihan_listrik`
-- [ ] Implement `/status_bayar_info`
-- [ ] Implement `/bayar_listrik`
-- [ ] Implement `CASH` / `TRANSFER` pending state
+- [x] Implement `/status_bayar_info`
+- [x] Implement `/bayar_listrik`
+- [x] Implement `CASH` / `TRANSFER` pending state
 - [ ] Implement proof forwarding to admin
 - [ ] Implement `/terima_bukti` and `/tolak_bukti`
-- [ ] Implement admin `/listrik` and `/belum_listrik`
-- [ ] Implement `/lunas_listrik` + `YA BAYAR`
+- [x] Implement admin `/listrik` and `/belum_listrik`
+- [x] Implement `/lunas_listrik` + `YA BAYAR`
 - [ ] Implement `/umumkan` + `KIRIM PENGUMUMAN`
 - [ ] Run `npm start`
 - [ ] Manual WhatsApp test

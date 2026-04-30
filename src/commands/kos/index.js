@@ -1,124 +1,163 @@
 'use strict';
 
-const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const electricityService = require('../../services/electricityService');
-const martinosAnnouncementService = require('../../services/martinosAnnouncementService');
 
-// ---------------------------------------------------------------------------
-// In-memory pending state — keyed by WhatsApp userId (JID string)
-// Entries are auto-deleted via setTimeout. Bot restart clears everything.
-// ---------------------------------------------------------------------------
-const pendingElectricityPayments = {}; // admin:  { roomCode, bulan, tahun, method }
-const pendingAnnouncements       = {}; // admin:  { target, message }
-const pendingProofUpload         = {}; // tenant: { tenant, bulan, tahun }
-const pendingVerifications       = {}; // keyed by verification code string
+const DEFAULT_ELECTRICITY_NOMINAL = 55000;
+const PENDING_TTL_MS = 10 * 60 * 1000;
 
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
+const pendingAdminMarkPaid = {};
+const pendingTenantPayments = {};
 
-function setPending(map, key, value, ttlMs) {
-  map[key] = value;
-  setTimeout(() => { delete map[key]; }, ttlMs);
-}
-
-function generateVerificationCode() {
-  // Exclude O/0 and I/1 to reduce transcription errors
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 4; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+function setPending(map, key, value, ttlMs = PENDING_TTL_MS) {
+  if (map[key]?.timeout) {
+    clearTimeout(map[key].timeout);
   }
-  return `BUKTI-${code}`;
+
+  const timeout = setTimeout(() => {
+    delete map[key];
+  }, ttlMs);
+
+  map[key] = { ...value, timeout };
 }
 
-function getCurrentMonthYear() {
+function clearPending(map, key) {
+  if (map[key]?.timeout) {
+    clearTimeout(map[key].timeout);
+  }
+  delete map[key];
+}
+
+function fmt(lines) {
+  return lines
+    .filter((line) => line !== null && line !== undefined && line !== false)
+    .join('\n');
+}
+
+function getNominal() {
+  const nominal = Number.parseInt(
+    process.env.MARTINOS_LISTRIK_NOMINAL || String(DEFAULT_ELECTRICITY_NOMINAL),
+    10,
+  );
+
+  return Number.isFinite(nominal) && nominal > 0
+    ? nominal
+    : DEFAULT_ELECTRICITY_NOMINAL;
+}
+
+function formatRupiah(value) {
+  return `Rp${Number(value || 0).toLocaleString('id-ID')}`;
+}
+
+function getCurrentPeriod() {
   const now = new Date();
+  const monthNumber = now.getMonth() + 1;
+
   return {
-    bulan: electricityService.getMonthName(now.getMonth() + 1),
-    tahun: String(now.getFullYear()),
+    bulan: electricityService.getMonthName(monthNumber),
+    bulanNumber: monthNumber,
+    tahun: now.getFullYear(),
   };
 }
 
-/** Filter out falsy lines then join with newline */
-function fmt(lines) {
-  return lines.filter(line => line !== null && line !== undefined && line !== false).join('\n');
+function getTenantRoomId(tenant) {
+  return tenant?.kamar_id || tenant?.id || tenant?.rooms?.id || null;
 }
 
-// ---------------------------------------------------------------------------
-// Admin command handlers
-// ---------------------------------------------------------------------------
+function getTenantRoomCode(tenant) {
+  return tenant?.nomor_kamar || tenant?.rooms?.code || '-';
+}
+
+function getTenantName(tenant) {
+  return tenant?.nama_penyewa || tenant?.name || 'Penghuni';
+}
+
+function formatDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('id-ID');
+}
+
+function formatBillStatus(bill) {
+  const status = String(bill?.status_bayar || 'belum lunas').trim() || 'belum lunas';
+  const method = bill?.metode_bayar ? `\nMetode: *${bill.metode_bayar}*` : '';
+  const paidAt = bill?.tanggal_bayar ? `\nTanggal bayar: *${formatDate(bill.tanggal_bayar)}*` : '';
+  return `Status: *${status.toUpperCase()}*${method}${paidAt}`;
+}
 
 function buildKosInfoMenu() {
   return fmt([
-    '> *MENU ADMIN MARTINOS KOS* 🏠',
+    '> *MENU ADMIN MARTINOS KOS*',
     '',
-    '*PERINTAH LISTRIK:*',
-    '- `/listrik <bulan> <tahun>` : Ringkasan pembayaran',
-    '- `/belum_listrik <bulan> <tahun>` : Daftar belum bayar',
-    '- `/lunas_listrik <kamar> <bulan> <tahun> <metode>` : Tandai lunas',
+    '*Listrik:*',
+    '- `/listrik <bulan> <tahun>`',
+    '- `/belum_listrik <bulan> <tahun>`',
+    '- `/lunas_listrik <room_code> <bulan> <tahun> <method>`',
     '',
-    '*VERIFIKASI BUKTI BAYAR:*',
-    '- `/terima_bukti <kode> <metode>` : Terima bukti bayar penghuni',
-    '- `/tolak_bukti <kode> <alasan>` : Tolak bukti bayar penghuni',
-    '',
-    '*PENGUMUMAN:*',
-    '- `/umumkan semua <pesan>` : Kirim ke semua grup',
-    '- `/umumkan martinos1 <pesan>` : Kirim ke grup Martinos 1',
-    '- `/umumkan martinos2 <pesan>` : Kirim ke grup Martinos 2',
-    '- `/umumkan martinos3 <pesan>` : Kirim ke grup Martinos 3',
-    '',
-    '*CONTOH:*',
+    '*Contoh:*',
     '`/listrik mei 2025`',
     '`/belum_listrik mei 2025`',
-    '`/lunas_listrik M1-1303 mei 2025 qris`',
-    '`/umumkan semua Besok air mati jam 10 pagi`',
+    '`/lunas_listrik M1-1303 mei 2025 cash`',
+  ]);
+}
+
+function buildTenantInfoMenu(tenant) {
+  return fmt([
+    `> *Menu Penghuni Martinos Kos*`,
+    '',
+    `Nama: *${getTenantName(tenant)}*`,
+    `Kamar: *${getTenantRoomCode(tenant)}*`,
+    '',
+    '- `/status_bayar_info`',
+    '- `/bayar_listrik`',
   ]);
 }
 
 async function handleListrik(args) {
   const [bulan, tahun] = args;
   if (!bulan || !tahun) {
-    return '❌ Format: `/listrik <bulan> <tahun>`\nContoh: `/listrik mei 2025`';
+    return 'Format: `/listrik <bulan> <tahun>`\nContoh: `/listrik mei 2025`';
   }
+
   const summary = await electricityService.getElectricitySummary(bulan, tahun);
   const buildingLines = summary.buildings.length > 0
-    ? summary.buildings.map(b => `- *${b.name}*: ${b.paid}/${b.total} lunas`).join('\n')
-    : '(belum ada data per gedung)';
-  const amountLine = summary.amountPerPerson
-    ? `Iuran/orang: *Rp ${Number(summary.amountPerPerson).toLocaleString('id-ID')}*`
-    : null;
+    ? summary.buildings.map((building) => (
+      `- *${building.name}*: ${building.paid} lunas, ${building.unpaid} belum (${building.total} total)`
+    ))
+    : ['Belum ada data tagihan untuk periode ini.'];
+
   return fmt([
     `> *RINGKASAN LISTRIK ${summary.periodLabel.toUpperCase()}*`,
     '',
-    `Periode: *${summary.periodLabel}*`,
-    amountLine,
-    '',
-    `Total penghuni: *${summary.totalTenants}*`,
-    `Sudah lunas: *${summary.totalPaid}* ✅`,
-    `Belum lunas: *${summary.totalUnpaid}* ⏳`,
+    `Nominal: *${formatRupiah(summary.amountPerPerson || getNominal())}*`,
+    `Total tagihan: *${summary.totalTenants}*`,
+    `Lunas: *${summary.totalPaid}*`,
+    `Belum lunas: *${summary.totalUnpaid}*`,
     '',
     '*Per Gedung:*',
-    buildingLines,
+    ...buildingLines,
   ]);
 }
 
 async function handleBelumListrik(args) {
   const [bulan, tahun] = args;
   if (!bulan || !tahun) {
-    return '❌ Format: `/belum_listrik <bulan> <tahun>`\nContoh: `/belum_listrik mei 2025`';
+    return 'Format: `/belum_listrik <bulan> <tahun>`\nContoh: `/belum_listrik mei 2025`';
   }
+
   const result = await electricityService.getUnpaidTenants(bulan, tahun);
   if (result.tenants.length === 0) {
-    return `> *BELUM BAYAR LISTRIK ${result.periodLabel.toUpperCase()}*\n\n✅ Semua penghuni sudah lunas!`;
+    return `> *BELUM BAYAR LISTRIK ${result.periodLabel.toUpperCase()}*\n\nSemua tagihan sudah lunas.`;
   }
-  const lines = result.tenants.map((t, i) =>
-    `${i + 1}. *${t.roomCode}* — ${t.tenantName} (${t.buildingName})`
-  );
+
+  const lines = result.tenants.map((tenant, index) => (
+    `${index + 1}. *${tenant.nomor_kamar || tenant.roomCode || '-'}* - ${tenant.nama_penyewa || tenant.tenantName || '-'} (${tenant.gedung?.nama || tenant.buildingName || '-'})`
+  ));
+
   return fmt([
     `> *BELUM BAYAR LISTRIK ${result.periodLabel.toUpperCase()}*`,
     '',
-    `Total: *${result.tenants.length}* penghuni belum bayar.`,
+    `Total: *${result.tenants.length}* tagihan belum lunas.`,
     '',
     ...lines,
   ]);
@@ -127,430 +166,251 @@ async function handleBelumListrik(args) {
 function handleLunasListrik(args, userId) {
   const [roomCode, bulan, tahun, method] = args;
   if (!roomCode || !bulan || !tahun || !method) {
-    return '❌ Format: `/lunas_listrik <kamar> <bulan> <tahun> <metode>`\nContoh: `/lunas_listrik M1-1303 mei 2025 qris`';
+    return 'Format: `/lunas_listrik <room_code> <bulan> <tahun> <method>`\nContoh: `/lunas_listrik M1-1303 mei 2025 cash`';
   }
-  setPending(pendingElectricityPayments, userId, { roomCode, bulan, tahun, method }, 5 * 60 * 1000);
+
+  setPending(pendingAdminMarkPaid, userId, { roomCode, bulan, tahun, method });
+
   return fmt([
-    'Bu, tak konfirmasi dulu ya.',
+    '> *Konfirmasi Pembayaran Listrik*',
     '',
-    'Akan ditandai lunas:',
     `Kamar: *${roomCode}*`,
     `Periode: *${bulan} ${tahun}*`,
     `Metode: *${method.toUpperCase()}*`,
     '',
-    'Ketik *YA BAYAR* untuk menyimpan.',
+    'Ketik *YA BAYAR* untuk menandai tagihan ini lunas.',
   ]);
 }
 
-async function handleUmumkan(args, userId) {
-  const [target, ...rest] = args;
-  const message = rest.join(' ').trim();
-  const validTargets = ['semua', 'martinos1', 'martinos2', 'martinos3'];
-  const normalizedTarget = String(target || '').toLowerCase();
-  if (!normalizedTarget || !validTargets.includes(normalizedTarget)) {
-    return '❌ Format: `/umumkan <target> <pesan>`\nTarget: semua, martinos1, martinos2, martinos3\nContoh: `/umumkan semua Besok air mati jam 10 pagi`';
-  }
-  if (!message) {
-    return '❌ Pesan pengumuman tidak boleh kosong.';
-  }
-  const labelMap = {
-    semua:     'Martinos Kos 1, 2, dan 3',
-    martinos1: 'Martinos Kos 1',
-    martinos2: 'Martinos Kos 2',
-    martinos3: 'Martinos Kos 3',
-  };
-  setPending(pendingAnnouncements, userId, { target: normalizedTarget, message }, 5 * 60 * 1000);
-  return fmt([
-    'Bu, pengumuman iki akan dikirim ke:',
-    `- ${labelMap[normalizedTarget]}`,
-    '',
-    'Isi:',
-    message,
-    '',
-    'Ketik *KIRIM PENGUMUMAN* untuk mengirim.',
-  ]);
-}
+async function handleAdminMarkPaidConfirmation(userId) {
+  const pending = pendingAdminMarkPaid[userId];
+  if (!pending) return null;
 
-async function handleTerimaBukti(args, userId, sock) {
-  const [rawCode, ...methodParts] = args;
-  const code = String(rawCode || '').trim().toUpperCase();
-  const method = methodParts.join(' ').trim() || 'transfer';
-  if (!code) {
-    return '❌ Format: `/terima_bukti <kode> <metode>`\nContoh: `/terima_bukti BUKTI-8F2K qris`';
-  }
-  const v = pendingVerifications[code];
-  if (!v) {
-    return 'Ngapunten Bu, kode verifikasi iki wis ora aktif utawa ora ketemu.';
-  }
-  await electricityService.markElectricityPaid(v.roomCode, v.bulan, v.tahun, method, userId);
+  const { roomCode, bulan, tahun, method } = pending;
+
   try {
-    await sock.sendMessage(v.tenantUserId, {
-      text: fmt([
-        '> *Pembayaran listrik wis diverifikasi* ✅',
-        '',
-        'Matur nuwun ya, Mas/Mbak.',
-        `Pembayaran listrik bulan ${v.bulan} ${v.tahun} wis diterima lan dicatet lunas.`,
-      ]),
-    });
-  } catch (e) {
-    console.error('[kos] Failed to notify tenant after /terima_bukti:', e.message);
-  }
-  delete pendingVerifications[code];
-  return `✅ Pembayaran listrik *${v.roomCode}* bulan ${v.bulan} ${v.tahun} wis dicatet lunas.`;
-}
+    const result = await electricityService.markElectricityPaidByRoomCode(
+      roomCode,
+      bulan,
+      tahun,
+      method,
+    );
 
-async function handleTolakBukti(args, userId, sock) {
-  const [rawCode, ...reasonParts] = args;
-  const code = String(rawCode || '').trim().toUpperCase();
-  const reason = reasonParts.join(' ').trim() || '(tanpa keterangan)';
-  if (!code) {
-    return '❌ Format: `/tolak_bukti <kode> <alasan>`\nContoh: `/tolak_bukti BUKTI-8F2K nominal tidak sesuai`';
-  }
-  const v = pendingVerifications[code];
-  if (!v) {
-    return 'Ngapunten Bu, kode verifikasi iki wis ora aktif utawa ora ketemu.';
-  }
-  try {
-    await sock.sendMessage(v.tenantUserId, {
-      text: fmt([
-        '> *Bukti pembayaran durung iso diverifikasi* 🙏',
-        '',
-        'Ngapunten ya, Mas/Mbak.',
-        `Bukti pembayaran listrik bulan ${v.bulan} ${v.tahun} durung iso diterima.`,
-        '',
-        'Catatan admin:',
-        reason,
-        '',
-        'Mangga kirim ulang bukti pembayaran sing bener ya.',
-      ]),
-    });
-  } catch (e) {
-    console.error('[kos] Failed to notify tenant after /tolak_bukti:', e.message);
-  }
-  delete pendingVerifications[code];
-  return `Baik Bu, bukti dari *${v.tenantName}* (*${v.roomCode}*) ditolak. Penghuni sudah diberitahu.`;
-}
+    clearPending(pendingAdminMarkPaid, userId);
 
-// ---------------------------------------------------------------------------
-// Tenant command handlers
-// ---------------------------------------------------------------------------
-
-function buildTenantInfoMenu(tenant) {
-  const name     = tenant?.name || 'Penghuni';
-  const roomCode = tenant?.rooms?.code || '-';
-  return fmt([
-    `> *Sugeng rawuh, ${name}!* 🏠`,
-    '',
-    `Kamu terdaftar di kamar *${roomCode}*.`,
-    '',
-    '*Menu Penghuni:*',
-    '- `/listrik_saya` : Status listrik bulanku',
-    '- `/status_bayar <bulan> <tahun>` : Cek status bayar bulan tertentu',
-    '- `/bayar_listrik` : Cara kirim bukti pembayaran',
-  ]);
-}
-
-async function handleListrikSaya(tenant) {
-  if (!tenant?.id) return '❌ Data penghuni tidak ditemukan.';
-  const { bulan, tahun } = getCurrentMonthYear();
-  const status   = await electricityService.getOwnElectricityStatus(tenant.id, bulan, tahun);
-  const roomCode = tenant?.rooms?.code || '-';
-  if (!status) {
     return fmt([
-      `> *STATUS LISTRIK ${bulan.toUpperCase()} ${tahun}*`,
+      '> *Pembayaran listrik berhasil dicatat lunas*',
       '',
-      'Data listrik bulan ini belum tersedia.',
-      'Hubungi ibu kos untuk informasi lebih lanjut.',
+      `Kamar: *${roomCode}*`,
+      `Periode: *${result.periodLabel || `${bulan} ${tahun}`}*`,
+      `Metode: *${String(method).toUpperCase()}*`,
+    ]);
+  } catch (error) {
+    clearPending(pendingAdminMarkPaid, userId);
+    return `Gagal mencatat pembayaran listrik: ${error.message}`;
+  }
+}
+
+async function handleStatusBayarInfo(tenant) {
+  const kamarId = getTenantRoomId(tenant);
+  if (!kamarId) {
+    return 'Data kamar penghuni tidak ditemukan.';
+  }
+
+  const { bulan, tahun } = getCurrentPeriod();
+  const bill = await electricityService.getCurrentTenantBill(kamarId, bulan, tahun);
+
+  if (!bill) {
+    return fmt([
+      `> *STATUS BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
+      '',
+      `Kamar: *${getTenantRoomCode(tenant)}*`,
+      'Tagihan listrik bulan ini belum tersedia.',
     ]);
   }
-  const statusLine = status.isPaid
-    ? `✅ *LUNAS*${status.paidAt ? ` (${new Date(status.paidAt).toLocaleDateString('id-ID')})` : ''}`
-    : '⏳ *BELUM LUNAS*';
+
   return fmt([
-    `> *STATUS LISTRIK ${bulan.toUpperCase()} ${tahun}*`,
+    `> *STATUS BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
     '',
-    `Kamar: *${roomCode}*`,
-    `Periode: *${status.periodLabel}*`,
-    status.amountPerPerson
-      ? `Iuran: *Rp ${Number(status.amountPerPerson).toLocaleString('id-ID')}*`
-      : null,
-    `Status: ${statusLine}`,
-    status.isPaid && status.paymentMethod ? `Metode: ${status.paymentMethod}` : null,
+    `Kamar: *${getTenantRoomCode(tenant)}*`,
+    `Periode: *${bulan} ${tahun}*`,
+    `Nominal: *${formatRupiah(getNominal())}*`,
+    formatBillStatus(bill),
   ]);
 }
 
-async function handleStatusBayar(args, tenant) {
-  const [bulan, tahun] = args;
-  if (!bulan || !tahun) {
-    return '❌ Format: `/status_bayar <bulan> <tahun>`\nContoh: `/status_bayar mei 2025`';
-  }
-  if (!tenant?.id) return '❌ Data penghuni tidak ditemukan.';
-  const status   = await electricityService.getOwnElectricityStatus(tenant.id, bulan, tahun);
-  const roomCode = tenant?.rooms?.code || '-';
-  if (!status) {
-    const mn    = electricityService.parseMonthToNumber(bulan);
-    const label = mn ? `${electricityService.getMonthName(mn)} ${tahun}` : `${bulan} ${tahun}`;
-    return `> *STATUS BAYAR ${label.toUpperCase()}*\n\nData untuk periode ini belum tersedia.`;
-  }
-  const statusLine = status.isPaid
-    ? `✅ *LUNAS*${status.paidAt ? ` (${new Date(status.paidAt).toLocaleDateString('id-ID')})` : ''}`
-    : '⏳ *BELUM LUNAS*';
-  return fmt([
-    `> *STATUS BAYAR ${status.periodLabel.toUpperCase()}*`,
-    '',
-    `Kamar: *${roomCode}*`,
-    `Periode: *${status.periodLabel}*`,
-    status.amountPerPerson
-      ? `Iuran: *Rp ${Number(status.amountPerPerson).toLocaleString('id-ID')}*`
-      : null,
-    `Status: ${statusLine}`,
-    status.isPaid && status.paymentMethod ? `Metode: ${status.paymentMethod}` : null,
-  ]);
-}
-
-function handleBayarListrik(userId, tenant) {
-  const { bulan, tahun } = getCurrentMonthYear();
-  setPending(pendingProofUpload, userId, { tenant, bulan, tahun }, 10 * 60 * 1000);
-  return fmt([
-    '> *Cara Kirim Bukti Bayar Listrik* 📸',
-    '',
-    'Kirim foto atau dokumen bukti transfer kamu ke chat ini sekarang ya.',
-    '',
-    'Bukti akan langsung diteruskan ke ibu kos untuk diverifikasi.',
-    'Status listrik baru berubah lunas setelah ibu kos konfirmasi.',
-  ]);
-}
-
-// ---------------------------------------------------------------------------
-// Proof upload handler
-// Called from waHandler when tenant sends an image or document.
-// Returns true if the upload was handled (caller should return early).
-// Returns false if no pending state exists (caller continues normally).
-// ---------------------------------------------------------------------------
-
-async function handleProofUpload(msg, userId, tenant, sock) {
-  const pending = pendingProofUpload[userId];
-  if (!pending) return false;
-
-  const isImage    = !!msg.message?.imageMessage;
-  const isDocument = !!msg.message?.documentMessage;
-  if (!isImage && !isDocument) return false;
-
-  const remoteJid = msg.key.remoteJid;
-  const adminJid  = process.env.MARTINOS_ADMIN_WA_JID;
-
-  if (!adminJid || !adminJid.trim()) {
-    await sock.sendMessage(remoteJid, {
-      text: 'Ngapunten, sistem verifikasi pembayaran durung aktif. Hubungi admin kos dulu ya.',
-    });
-    delete pendingProofUpload[userId];
-    return true;
+async function handleBayarListrik(userId, tenant) {
+  const kamarId = getTenantRoomId(tenant);
+  if (!kamarId) {
+    return 'Data kamar penghuni tidak ditemukan.';
   }
 
-  const { bulan, tahun }   = pending;
-  const tenantRecord       = pending.tenant || tenant || {};
-  const tenantName         = tenantRecord?.name || 'Penghuni';
-  const roomCode           = tenantRecord?.rooms?.code || '-';
-  // ⚠️ CONFIRM: whatsapp_number column name
-  const tenantPhone        = tenantRecord?.whatsapp_number || '-';
-  const verificationCode   = generateVerificationCode();
+  const { bulan, tahun } = getCurrentPeriod();
+  const bill = await electricityService.getCurrentTenantBill(kamarId, bulan, tahun);
 
-  // Download buffer (only for forwarding — not stored)
-  let proofBuffer;
-  try {
-    proofBuffer = await downloadMediaMessage(
-      msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage }
-    );
-  } catch (err) {
-    console.error('[kos] Failed to download proof buffer:', err.message);
-    await sock.sendMessage(remoteJid, {
-      text: '❌ Gagal memproses bukti pembayaran. Coba kirim ulang ya.',
-    });
-    return true;
+  if (!bill) {
+    return fmt([
+      `> *TAGIHAN LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
+      '',
+      `Kamar: *${getTenantRoomCode(tenant)}*`,
+      'Tagihan listrik bulan ini belum tersedia. Hubungi ibu kos ya.',
+    ]);
   }
 
-  const mimeType = (isImage
-    ? msg.message.imageMessage?.mimetype
-    : msg.message.documentMessage?.mimetype) || 'image/jpeg';
-  const fileName = (isDocument && msg.message.documentMessage?.fileName)
-    || `bukti_${verificationCode}.jpg`;
-
-  const adminText = [
-    '*Bukti Pembayaran Listrik Masuk* 🧾',
-    '',
-    'Bu, ana bukti transfer mlebu.',
-    '',
-    `Kode Verifikasi: *${verificationCode}*`,
-    `Nama: ${tenantName}`,
-    `Kamar: ${roomCode}`,
-    `Periode: ${bulan} ${tahun}`,
-    `Nomor WA: ${tenantPhone}`,
-    '',
-    'Bukti pembayaran tak teruske nang ngisor iki ya, Bu.',
-    '',
-    `Nek pembayaran iki wis bener, balas:\n\`/terima_bukti ${verificationCode} qris\``,
-    '',
-    `Nek durung cocok, balas:\n\`/tolak_bukti ${verificationCode} alasan\``,
-  ].join('\n');
-
-  try {
-    // 1. Admin notification text
-    await sock.sendMessage(adminJid, { text: adminText });
-    // 2. Forward the proof media (buffer discarded after this)
-    if (isImage) {
-      await sock.sendMessage(adminJid, {
-        image: proofBuffer, mimetype: mimeType,
-        caption: `Bukti dari ${tenantName} — ${verificationCode}`,
-      });
-    } else {
-      await sock.sendMessage(adminJid, {
-        document: proofBuffer, mimetype: mimeType, fileName,
-        caption: `Bukti dari ${tenantName} — ${verificationCode}`,
-      });
-    }
-  } catch (err) {
-    console.error('[kos] Failed to forward proof to admin:', err.message);
-    await sock.sendMessage(remoteJid, {
-      text: '❌ Gagal meneruskan bukti ke ibu kos. Coba lagi nanti ya.',
-    });
-    delete pendingProofUpload[userId];
-    return true;
-  }
-
-  // 3. Store verification record (30-min expiry)
-  setPending(pendingVerifications, verificationCode, {
-    code:         verificationCode,
-    tenantUserId: remoteJid,
-    tenantId:     tenantRecord?.id,
-    tenantName,
-    tenantPhone,
-    roomCode,
+  setPending(pendingTenantPayments, userId, {
+    tenant,
+    kamarId,
+    billId: bill.id,
     bulan,
     tahun,
-    createdAt: Date.now(),
-  }, 30 * 60 * 1000);
-
-  // 4. Clear upload pending — buffer is now out of scope and will be GC'd
-  delete pendingProofUpload[userId];
-
-  // 5. Reply tenant
-  await sock.sendMessage(remoteJid, {
-    text: fmt([
-      '> *Bukti pembayaran wis tak teruske ke admin ya* 🧾',
-      '',
-      'Matur nuwun, Mas/Mbak.',
-      'Nanti ibu kos tak cek dulu.',
-      'Status listrik baru berubah lunas setelah diverifikasi admin.',
-    ]),
+    method: null,
   });
 
-  return true;
+  return fmt([
+    `> *BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
+    '',
+    `Kamar: *${getTenantRoomCode(tenant)}*`,
+    `Nominal: *${formatRupiah(getNominal())}*`,
+    formatBillStatus(bill),
+    '',
+    'Pilih cara bayar dengan membalas:',
+    '*CASH* atau *TRANSFER*',
+  ]);
 }
 
-// ---------------------------------------------------------------------------
-// Pending confirmation handler
-// Called from waHandler for every non-command text message from known users.
-// Returns a reply string if the text was a confirmation keyword, else null.
-// null = fall through to AI chat as normal.
-// ---------------------------------------------------------------------------
+function handleCashChoice(userId) {
+  const pending = pendingTenantPayments[userId];
+  if (!pending) return null;
 
-async function handlePendingConfirmation(cleanText, userId, role, sock) {
-  const upper = String(cleanText || '').trim().toUpperCase();
+  setPending(pendingTenantPayments, userId, { ...pending, method: 'cash' });
 
-  if (upper === 'YA BAYAR' && role === 'admin') {
-    const pending = pendingElectricityPayments[userId];
-    if (!pending) return null; // no pending action — pass to AI
-    const { roomCode, bulan, tahun, method } = pending;
-    try {
-      await electricityService.markElectricityPaid(roomCode, bulan, tahun, method, userId);
-      delete pendingElectricityPayments[userId];
-      return `✅ Sukses! Pembayaran listrik kamar *${roomCode}* bulan ${bulan} ${tahun} wis dicatet lunas (${method.toUpperCase()}).`;
-    } catch (err) {
-      delete pendingElectricityPayments[userId];
-      return `❌ Gagal menyimpan: ${err.message}`;
-    }
+  return `Nggih, Mas/Mbak. Nek bayar cash, tulung taruh uang listrik ${formatRupiah(getNominal())} nang tempat biasa, yaitu di atas kulkas. Sawise ditaruh, foto uangnya ya. Kirim fotone neng chat iki, nanti tak teruske ke admin.`;
+}
+
+function handleTransferChoice(userId) {
+  const pending = pendingTenantPayments[userId];
+  if (!pending) return null;
+
+  setPending(pendingTenantPayments, userId, { ...pending, method: 'transfer' });
+
+  const bankName = process.env.MARTINOS_BANK_NAME || '-';
+  const bankAccount = process.env.MARTINOS_BANK_ACCOUNT || '-';
+  const bankAccountName = process.env.MARTINOS_BANK_ACCOUNT_NAME || '-';
+
+  return fmt([
+    '> *Transfer Listrik Martinos Kos*',
+    '',
+    `Nominal: *${formatRupiah(getNominal())}*`,
+    `Bank: *${bankName}*`,
+    `No. Rekening: *${bankAccount}*`,
+    `Atas Nama: *${bankAccountName}*`,
+    '',
+    'Sawise transfer, kirim screenshot/foto bukti pembayaran neng chat iki ya.',
+  ]);
+}
+
+async function handleTextReply(text, userId, role) {
+  const normalized = String(text || '').trim().toUpperCase();
+
+  if (role === 'admin' && normalized === 'YA BAYAR') {
+    return handleAdminMarkPaidConfirmation(userId);
   }
 
-  if (upper === 'KIRIM PENGUMUMAN' && role === 'admin') {
-    const pending = pendingAnnouncements[userId];
-    if (!pending) return null;
-    const { target, message } = pending;
-    try {
-      const result = await martinosAnnouncementService.sendAnnouncement(sock, target, message);
-      delete pendingAnnouncements[userId];
-      await martinosAnnouncementService.logAnnouncement(target, message, userId);
-      return `✅ Pengumuman terkirim ke ${result.successCount}/${result.totalCount} grup!`;
-    } catch (err) {
-      delete pendingAnnouncements[userId];
-      return `❌ Gagal kirim pengumuman: ${err.message}`;
-    }
+  if (role === 'tenant' && normalized === 'CASH') {
+    return handleCashChoice(userId);
+  }
+
+  if (role === 'tenant' && normalized === 'TRANSFER') {
+    return handleTransferChoice(userId);
   }
 
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Main dispatcher
-// Returns a reply string, or null if this is not a Martinos-specific command
-// (null tells waHandler to fall through to the existing switch cases).
-// ---------------------------------------------------------------------------
+async function handleKosCommand(command, args, userId, role, tenant, sock, msg) {
+  void sock;
+  void msg;
 
-async function handleKosCommand(command, args, userId, role, tenant, sock) {
-  // /start — simple welcome for any known role
-  if (command === '/start') {
-    return fmt([
-      '> *Sugeng rawuh nang Martinos Kos* 🏠',
-      '',
-      'Halo! Ketik /info kanggo ndelok menu sesuai peranmu ya.',
-    ]);
+  const normalizedCommand = String(command || '').trim().toLowerCase();
+
+  if (!normalizedCommand.startsWith('/')) {
+    return handleTextReply(normalizedCommand, userId, role);
   }
 
-  // /info — role-aware menu
-  if (command === '/info') {
-    if (role === 'admin')  return fmt(['> *Halo, Bu!* 🙏', '', 'Gunakan /kos_info untuk melihat menu admin lengkap.']);
+  if (normalizedCommand === '/start') {
+    return 'Sugeng rawuh nang Martinos Kos. Ketik /info kanggo lihat menu.';
+  }
+
+  if (normalizedCommand === '/info') {
+    if (role === 'admin') return 'Halo Bu. Gunakan /kos_info untuk menu admin Martinos Kos.';
     if (role === 'tenant') return buildTenantInfoMenu(tenant);
     return null;
   }
 
-  // Admin commands
   if (role === 'admin') {
-    switch (command) {
-      case '/kos_info':      return buildKosInfoMenu();
-      case '/listrik':       try { return await handleListrik(args); }      catch (e) { return `❌ ${e.message}`; }
-      case '/belum_listrik': try { return await handleBelumListrik(args); } catch (e) { return `❌ ${e.message}`; }
-      case '/lunas_listrik': return handleLunasListrik(args, userId);
-      case '/umumkan':       try { return await handleUmumkan(args, userId); }       catch (e) { return `❌ ${e.message}`; }
-      case '/terima_bukti':  try { return await handleTerimaBukti(args, userId, sock); }  catch (e) { return `❌ ${e.message}`; }
-      case '/tolak_bukti':   try { return await handleTolakBukti(args, userId, sock); }   catch (e) { return `❌ ${e.message}`; }
-      // Tenant-only commands attempted by admin
-      case '/listrik_saya':
-      case '/status_bayar':
+    switch (normalizedCommand) {
+      case '/kos_info':
+        return buildKosInfoMenu();
+      case '/listrik':
+        try {
+          return await handleListrik(args);
+        } catch (error) {
+          return `Gagal mengambil ringkasan listrik: ${error.message}`;
+        }
+      case '/belum_listrik':
+        try {
+          return await handleBelumListrik(args);
+        } catch (error) {
+          return `Gagal mengambil daftar belum bayar: ${error.message}`;
+        }
+      case '/lunas_listrik':
+        return handleLunasListrik(args, userId);
       case '/bayar_listrik':
-        return '> *Perintah iku khusus penghuni kos.* 🏠\nUntuk admin, gunakan /kos_info.';
-      default: return null;
+      case '/status_bayar_info':
+        return 'Perintah ini khusus penghuni kos.';
+      default:
+        return null;
     }
   }
 
-  // Tenant commands
   if (role === 'tenant') {
-    switch (command) {
-      case '/listrik_saya':  try { return await handleListrikSaya(tenant); }           catch (e) { return `❌ ${e.message}`; }
-      case '/status_bayar':  try { return await handleStatusBayar(args, tenant); }     catch (e) { return `❌ ${e.message}`; }
-      case '/bayar_listrik': return handleBayarListrik(userId, tenant);
-      // Admin-only commands attempted by tenant
+    switch (normalizedCommand) {
+      case '/bayar_listrik':
+        try {
+          return await handleBayarListrik(userId, tenant);
+        } catch (error) {
+          return `Gagal mengambil tagihan listrik: ${error.message}`;
+        }
+      case '/status_bayar_info':
+        try {
+          return await handleStatusBayarInfo(tenant);
+        } catch (error) {
+          return `Gagal mengambil status pembayaran: ${error.message}`;
+        }
       case '/kos_info':
       case '/listrik':
       case '/belum_listrik':
       case '/lunas_listrik':
-      case '/umumkan':
-      case '/terima_bukti':
-      case '/tolak_bukti':
-        return '> *Ngapunten ya* 🙏\nFitur iki khusus admin Martinos Kos.';
-      default: return null;
+        return 'Ngapunten ya, fitur iki khusus admin Martinos Kos.';
+      default:
+        return null;
     }
   }
 
   return null;
 }
 
-module.exports = { handleKosCommand, handleProofUpload, handlePendingConfirmation };
+async function handlePendingConfirmation(cleanText, userId, role, sock) {
+  void sock;
+  return handleTextReply(cleanText, userId, role);
+}
+
+async function handleProofUpload() {
+  return false;
+}
+
+module.exports = {
+  handleKosCommand,
+  handleProofUpload,
+  handlePendingConfirmation,
+};
