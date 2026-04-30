@@ -1,12 +1,15 @@
 'use strict';
 
+const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const electricityService = require('../../services/electricityService');
 
 const DEFAULT_ELECTRICITY_NOMINAL = 55000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
+const PENDING_PROOF_TTL_MS = 24 * 60 * 60 * 1000;
 
 const pendingAdminMarkPaid = {};
 const pendingTenantPayments = {};
+const pendingProofVerifications = {};
 
 function setPending(map, key, value, ttlMs = PENDING_TTL_MS) {
   if (map[key]?.timeout) {
@@ -86,6 +89,60 @@ function getTenantBuildingLabel(tenant) {
     return buildingName;
   }
   return `Martinos Kos ${buildingName}`;
+}
+
+function normalizeWhatsAppNumber(value) {
+  return String(value || '')
+    .split('@')[0]
+    .split(':')[0]
+    .replace(/[^\d]/g, '');
+}
+
+function toWhatsAppJid(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.includes('@')) return raw;
+
+  const normalized = normalizeWhatsAppNumber(raw);
+  return normalized ? `${normalized}@s.whatsapp.net` : '';
+}
+
+function normalizeProofCode(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) return '';
+  return raw.startsWith('BUKTI-') ? raw : `BUKTI-${raw}`;
+}
+
+function generateProofCode() {
+  for (let i = 0; i < 10; i += 1) {
+    const suffix = String(Math.floor(1000 + Math.random() * 9000));
+    const code = `BUKTI-${suffix}`;
+    if (!pendingProofVerifications[code]) return code;
+  }
+
+  return `BUKTI-${Date.now().toString().slice(-4)}`;
+}
+
+function getProofMedia(msg) {
+  const imageMessage = msg?.message?.imageMessage;
+  if (imageMessage) {
+    return {
+      kind: 'image',
+      mimetype: imageMessage.mimetype || 'image/jpeg',
+      fileName: `bukti-${Date.now()}.jpg`,
+    };
+  }
+
+  const documentMessage = msg?.message?.documentMessage;
+  if (documentMessage) {
+    return {
+      kind: 'document',
+      mimetype: documentMessage.mimetype || 'application/octet-stream',
+      fileName: documentMessage.fileName || `bukti-${Date.now()}`,
+    };
+  }
+
+  return null;
 }
 
 function formatDate(value) {
@@ -363,8 +420,118 @@ async function handleTextReply(text, userId, role) {
   return null;
 }
 
+function buildAdminProofCaption(code, pending) {
+  return fmt([
+    '> *BUKTI PEMBAYARAN LISTRIK*',
+    '',
+    `Kode: *${code}*`,
+    `Penghuni: *${getTenantMasName(pending.tenant)}*`,
+    `Kamar: *${getTenantRoomCode(pending.tenant)}*`,
+    `Gedung: *${getTenantBuildingName(pending.tenant)}*`,
+    `Periode: *${pending.bulan} ${pending.tahun}*`,
+    `Metode: *${String(pending.method).toUpperCase()}*`,
+    `Nominal: *${formatRupiah(getNominal())}*`,
+    '',
+    'Balas:',
+    `/terima_bukti ${code}`,
+    'atau',
+    `/tolak_bukti ${code} <alasan>`,
+  ]);
+}
+
+async function notifyTenant(sock, tenantJid, text) {
+  if (!sock || !tenantJid || !text) return false;
+
+  try {
+    await sock.sendMessage(tenantJid, { text });
+    return true;
+  } catch (error) {
+    console.error('Gagal mengirim notifikasi Martinos ke penghuni:', error);
+    return false;
+  }
+}
+
+async function handleTerimaBukti(args, sock) {
+  const code = normalizeProofCode(args[0]);
+  if (!code || !args[0]) {
+    return 'Format: `/terima_bukti <kode>`\nContoh: `/terima_bukti BUKTI-1234`';
+  }
+
+  const pending = pendingProofVerifications[code];
+  if (!pending) {
+    return `Kode bukti *${code}* tidak ditemukan atau sudah kedaluwarsa.`;
+  }
+
+  try {
+    const updated = await electricityService.markElectricityPaidByTagihanId(
+      pending.billId,
+      pending.method,
+    );
+
+    clearPending(pendingProofVerifications, code);
+
+    const tenantReply = fmt([
+      '> *Pembayaran listrik diterima*',
+      '',
+      `Nggih, ${getTenantMasName(pending.tenant)}.`,
+      `Bukti pembayaran listrik periode *${pending.bulan} ${pending.tahun}* wis diterima admin.`,
+      `Status tagihan kamar *${getTenantRoomCode(pending.tenant)}* sudah *LUNAS*.`,
+    ]);
+    const notified = await notifyTenant(sock, pending.tenantJid, tenantReply);
+
+    return fmt([
+      '> *Bukti pembayaran diterima*',
+      '',
+      `Kode: *${code}*`,
+      `Kamar: *${getTenantRoomCode(pending.tenant)}*`,
+      `Penghuni: *${getTenantMasName(pending.tenant)}*`,
+      `Periode: *${pending.bulan} ${pending.tahun}*`,
+      `Metode: *${String(updated.metode_bayar || pending.method).toUpperCase()}*`,
+      notified ? 'Penghuni wis dikabari.' : 'Status sudah lunas, tapi notifikasi penghuni gagal dikirim.',
+    ]);
+  } catch (error) {
+    return `Gagal menerima bukti ${code}: ${error.message}`;
+  }
+}
+
+async function handleTolakBukti(args, sock) {
+  const code = normalizeProofCode(args[0]);
+  const reason = args.slice(1).join(' ').trim();
+
+  if (!code || !args[0] || !reason) {
+    return 'Format: `/tolak_bukti <kode> <alasan>`\nContoh: `/tolak_bukti BUKTI-1234 nominal belum sesuai`';
+  }
+
+  const pending = pendingProofVerifications[code];
+  if (!pending) {
+    return `Kode bukti *${code}* tidak ditemukan atau sudah kedaluwarsa.`;
+  }
+
+  clearPending(pendingProofVerifications, code);
+
+  const tenantReply = fmt([
+    '> *Bukti pembayaran perlu dicek maneh*',
+    '',
+    `Nggih, ${getTenantMasName(pending.tenant)}.`,
+    `Bukti pembayaran listrik periode *${pending.bulan} ${pending.tahun}* durung iso diterima.`,
+    `Alasan: *${reason}*`,
+    '',
+    'Tulung kirim ulang lewat */bayar_listrik* ya.',
+  ]);
+  const notified = await notifyTenant(sock, pending.tenantJid, tenantReply);
+
+  return fmt([
+    '> *Bukti pembayaran ditolak*',
+    '',
+    `Kode: *${code}*`,
+    `Kamar: *${getTenantRoomCode(pending.tenant)}*`,
+    `Penghuni: *${getTenantMasName(pending.tenant)}*`,
+    `Alasan: *${reason}*`,
+    notified ? 'Penghuni wis dikabari.' : 'Bukti ditolak, tapi notifikasi penghuni gagal dikirim.',
+  ]);
+}
+
 async function handleKosCommand(command, args, userId, role, tenant, sock, msg) {
-  void sock;
   void msg;
 
   const normalizedCommand = String(command || '').trim().toLowerCase();
@@ -403,6 +570,10 @@ async function handleKosCommand(command, args, userId, role, tenant, sock, msg) 
         }
       case '/lunas_listrik':
         return handleLunasListrik(args, userId);
+      case '/terima_bukti':
+        return handleTerimaBukti(args, sock);
+      case '/tolak_bukti':
+        return handleTolakBukti(args, sock);
       case '/bayar_listrik':
       case '/status_bayar_info':
         return 'Perintah ini khusus penghuni kos.';
@@ -429,6 +600,8 @@ async function handleKosCommand(command, args, userId, role, tenant, sock, msg) 
       case '/listrik':
       case '/belum_listrik':
       case '/lunas_listrik':
+      case '/terima_bukti':
+      case '/tolak_bukti':
         return 'Ngapunten ya, fitur iki khusus admin Martinos Kos.';
       default:
         return null;
@@ -443,8 +616,95 @@ async function handlePendingConfirmation(cleanText, userId, role, sock) {
   return handleTextReply(cleanText, userId, role);
 }
 
-async function handleProofUpload() {
-  return false;
+async function handleProofUpload(msg, userId, tenant, sock) {
+  const pending = pendingTenantPayments[userId];
+  if (!pending || !pending.method) {
+    return false;
+  }
+
+  const media = getProofMedia(msg);
+  if (!media) {
+    return false;
+  }
+
+  const adminJid = toWhatsAppJid(process.env.MARTINOS_ADMIN_WA_JID);
+  const tenantChatJid = toWhatsAppJid(userId) || msg?.key?.remoteJid;
+  const replyJid = msg?.key?.remoteJid || tenantChatJid;
+
+  if (!adminJid) {
+    await sock.sendMessage(replyJid, {
+      text: fmt([
+        `Ngapunten, ${getTenantMasName(tenant || pending.tenant)}.`,
+        'Bukti pembayaran belum bisa diteruske karena nomor admin belum disetel.',
+        'Hubungi ibu kos dulu ya.',
+      ]),
+    }, { quoted: msg });
+    return true;
+  }
+
+  let buffer;
+  try {
+    buffer = await downloadMediaMessage(
+      msg,
+      'buffer',
+      {},
+      { reuploadRequest: sock.updateMediaMessage },
+    );
+  } catch (error) {
+    console.error('Gagal download bukti pembayaran Martinos:', error);
+    await sock.sendMessage(replyJid, {
+      text: `Ngapunten, ${getTenantMasName(tenant || pending.tenant)}. Bukti pembayaran gagal diproses. Coba kirim ulang fotone ya.`,
+    }, { quoted: msg });
+    return true;
+  }
+
+  const code = generateProofCode();
+  const verification = {
+    ...pending,
+    tenant: tenant || pending.tenant,
+    tenantJid: tenantChatJid,
+    code,
+  };
+
+  setPending(pendingProofVerifications, code, verification, PENDING_PROOF_TTL_MS);
+
+  const caption = buildAdminProofCaption(code, verification);
+  const adminMessage = media.kind === 'image'
+    ? {
+      image: buffer,
+      mimetype: media.mimetype,
+      caption,
+    }
+    : {
+      document: buffer,
+      mimetype: media.mimetype,
+      fileName: media.fileName,
+      caption,
+    };
+
+  try {
+    await sock.sendMessage(adminJid, adminMessage);
+  } catch (error) {
+    clearPending(pendingProofVerifications, code);
+    console.error('Gagal meneruskan bukti pembayaran Martinos ke admin:', error);
+    await sock.sendMessage(replyJid, {
+      text: `Ngapunten, ${getTenantMasName(tenant || pending.tenant)}. Bukti pembayaran belum bisa diteruske ke admin. Coba maneh beberapa saat ya.`,
+    }, { quoted: msg });
+    return true;
+  }
+
+  clearPending(pendingTenantPayments, userId);
+
+  await sock.sendMessage(replyJid, {
+    text: fmt([
+      `Nggih, ${getTenantMasName(tenant || pending.tenant)}.`,
+      'Bukti pembayaran wis tak teruske ke admin.',
+      `Kode bukti: *${code}*`,
+      'Nanti nek wis dicek, panjenengan bakal tak kabari neng chat iki.',
+    ]),
+  }, { quoted: msg });
+
+  return true;
 }
 
 module.exports = {

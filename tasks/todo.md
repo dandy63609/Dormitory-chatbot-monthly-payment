@@ -155,8 +155,8 @@ Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `
 - [x] Implement `/status_bayar_info`
 - [x] Implement `/bayar_listrik`
 - [x] Implement `CASH` / `TRANSFER` pending state
-- [ ] Implement proof forwarding to admin
-- [ ] Implement `/terima_bukti` and `/tolak_bukti`
+- [x] Implement proof forwarding to admin
+- [x] Implement `/terima_bukti` and `/tolak_bukti`
 - [x] Implement admin `/listrik` and `/belum_listrik`
 - [x] Implement `/lunas_listrik` + `YA BAYAR`
 - [ ] Implement `/umumkan` + `KIRIM PENGUMUMAN`
