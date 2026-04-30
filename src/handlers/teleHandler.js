@@ -863,7 +863,7 @@ async function processMenuCommand(ctx, command, userId) {
         case '/info': {
             const header = '<b>INFORMASI FUENZER BOT</b> 🤖';
             const body = `Saya adalah asisten virtual pribadi milik <b>Ridwan Yoga Suryantara</b>.\n\n<b>DUKUNGAN BOT</b> ☕\n• /donate : Link dukungan + QR donasi\n\n<b>FITUR KEUANGAN</b> 💰\n• /finance_info : Panduan Lengkap command keuangan\n\n<b>FITUR SISTEM</b> ⚙️\n• /ping : Cek status bot\n• /info : Menampilkan pesan ini\n• /start : Memulai bot\n\n<b>FITUR AI</b> 🧠\nKirim pesan biasa (tanpa awalan /) untuk ngobrol, tanya coding, atau diskusi teknologi.\n• /model_info : Daftar model AI yang tersedia\n• /switch : Ganti model AI aktif\n\n<b>FITUR UTILITAS</b> 🛠️\n• /short : Pendekkan URL dengan is.gd\n• /research_info : Panduan Lengkap Referensi (buku/jurnal/artikel)\n• /downloader : Panduan Lengkap download (/download & /audio)\n• /cuaca : Info cuaca hari ini\n• /sholat : Jadwal sholat hari ini\n• /me : Tentang pembuat bot\n\n<b>FITUR CONVERTER</b> 🖼️\n• /img_info : Panduan Lengkap image tools\n• /pdf_info : Panduan Lengkap PDF tools\n\n<b>FITUR STICKER</b> 🧩\n• /sticker_info : Panduan Lengkap sticker tools\n\n<b>FITUR ADMIN</b> 🛡️\n• /admin : Menu command admin`;
-            const message = `${header}\n\n${body}\n\n${buildSystemStatsFooter()}`;
+            const message = `${header}\n\n${body}`;
             await ctx.reply(message, {
                 parse_mode: 'HTML',
                 ...buildMainMenuKeyboard()
@@ -898,7 +898,7 @@ async function processMenuCommand(ctx, command, userId) {
             return;
         }
         case '/ping':
-            await ctx.reply(`Pong! 🏓\n\n${buildSystemStatsFooter()}`);
+            await ctx.reply('Pong! 🏓');
             return;
         case '/saldo':
         case '/catat':
@@ -1646,8 +1646,7 @@ function setupTelegramBot() {
             
             try {
                 const aiResult = await askAiDetailed(text, userId, 'telegram');
-                const withAiFooter = appendFooter(aiResult.text, buildAiStatsFooter(aiResult));
-                const formattedReply = formatTelegramHtml(withAiFooter);
+                const formattedReply = formatTelegramHtml(aiResult.text);
                 const finalReply = formatBodyBold(formattedReply);
                 await ctx.reply(finalReply, { parse_mode: 'HTML' });
             } catch (error) {
@@ -1674,8 +1673,7 @@ function setupTelegramBot() {
                     errorHeader = '<b>ERROR AI</b> ❌';
                     errorBody = 'Maaf, otak AI sedang gangguan.\nCoba lagi nanti atau gunakan perintah sistem (/ping, /saldo).';
                 }
-                const errorText = appendFooter(`${errorHeader}\n\n${errorBody}`, buildAiStatsFooter({ model: '-', usage: { promptTokenCount: 0, candidatesTokenCount: 0 }, rpm: { label: '-' } }));
-                const formattedError = formatTelegramHtml(errorText);
+                const formattedError = formatTelegramHtml(`${errorHeader}\n\n${errorBody}`);
                 const finalError = formatBodyBold(formattedError);
                 await ctx.reply(finalError, { parse_mode: 'HTML' });
             }
@@ -1830,7 +1828,7 @@ function setupTelegramBot() {
     // Error handling
     bot.catch((err, ctx) => {
         console.error(`Telegram Bot Error for ${ctx.updateType}:`, err);
-        ctx.reply('<b>ERROR SISTEM</b> ❌\n\nTerjadi kesalahan internal. Silakan coba lagi nanti.', { parse_mode: 'HTML' });
+        ctx.reply('<b>ERROR SISTEM</b> ❌\chn\nTerjadi kesalahan internal. Silakan coba lagi nanti.', { parse_mode: 'HTML' });
     });
 }
 

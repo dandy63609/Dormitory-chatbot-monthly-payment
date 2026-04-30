@@ -1,44 +1,57 @@
 // AI client (OpenRouter via OpenAI SDK)
-const OpenAI = require('openai');
-const { AI_MODELS, getActiveModel, getModelById } = require('../services/aiPreferenceService');
-const { logAIUsage } = require('../services/logService');
+const OpenAI = require("openai");
+const {
+  AI_MODELS,
+  getActiveModel,
+  getModelById,
+} = require("../services/aiPreferenceService");
+const { logAIUsage } = require("../services/logService");
 
 // Inisialisasi OpenRouter API
 const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey) {
-    console.error('ERROR: OPENROUTER_API_KEY tidak ditemukan di environment variables.');
-    console.error('Pastikan Anda telah membuat file .env dengan OPENROUTER_API_KEY=your_key_here');
+  console.error(
+    "ERROR: OPENROUTER_API_KEY tidak ditemukan di environment variables.",
+  );
+  console.error(
+    "Pastikan Anda telah membuat file .env dengan OPENROUTER_API_KEY=your_key_here",
+  );
 }
 
 const openai = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey,
 });
 
-const modelName = AI_MODELS['gpt-oss'].id; // Default model
-const RPM_LIMIT = parseInt(process.env.OPENROUTER_RPM_LIMIT || process.env.GEMINI_RPM_LIMIT || '15', 10);
+// Force model to a known Vision-capable OpenRouter model
+const FORCED_OPENROUTER_MODEL_ID =
+  "meta-llama/llama-3.2-11b-vision-instruct:free";
+const modelName = FORCED_OPENROUTER_MODEL_ID;
+const RPM_LIMIT = parseInt(
+  process.env.OPENROUTER_RPM_LIMIT || process.env.GEMINI_RPM_LIMIT || "15",
+  10,
+);
 const requestTimestamps = [];
 
-const systemInstruction = `Kamu adalah Fuenzer Bot, asisten virtual pribadi milik Ridwan Yoga Suryantara (seorang developer Fuenzer Studio & mahasiswa Sistem Informasi). Kamu ramah, pintar coding, dan asyik diajak ngobrol.
-  ATURAN PENTING:
-  1. Jika pengguna mengirim pesan yang tidak jelas, ketikan acak (seperti 'ajsdas', 'sjadna'), atau hanya huruf tunggal ('P', 'y'), JANGAN memberikan jawaban panjang. Cukup balas singkat: "Maaf, aku kurang paham maksud ketikanmu. 😅 Ketik /info untuk melihat daftar kemampuanku ya!"
-  2. Jika pengguna baru menyapa (seperti "Halo", "Hai") atau bertanya tentang apa yang bisa kamu lakukan, selalu akhiri jawabanmu dengan menawarkan mereka untuk mengetik command "/info".
-  3. DILARANG KERAS menggunakan format Tabel Markdown (seperti | Kolom | Kolom |). Jika kamu perlu menyajikan data tabular, daftar, atau perbandingan, JADIKAN format Bullet Points (-) atau Numbered Lists (1. 2. 3.) yang rapi dan mudah dibaca di layar HP.
-  4. Selalu sesuaikan bahasa jawaban dengan bahasa input user. Jika user menulis English, balas English. Jika user menulis Indonesia, balas Indonesia. Jika campuran, ikuti bahasa dominan user.
-  5. INFORMASI COMMAND hanya dijelaskan saat user menanyakan command/fitur/menu/help (contoh: "command apa saja", "cara pakai /pdf", "fungsi /jurnal"). Jika user tidak menanyakan command, jangan memaksa membahas daftar command.
-  6. Saat ditanya command, jelaskan ringkas fungsi dan cara pakai command berikut:
-     - Sistem: /start, /info, /ping
-     - AI: /model_info, /switch
-     - Research: /research_info, /buku, /jurnal, /artikel
-     - Downloader: /downloader, /download, /audio, /short
-     - Finance: /finance_info, /saldo, /catat, /pemasukan, /laporan_chart, /riwayat, /edit, /hapus
-     - Utilitas: /cuaca, /sholat, /me
-     - Converter image: /img_info, /img, /hapusbg, /ss
-     - Converter PDF: /pdf_info, /topdf, /pdf
-     - Sticker: /sticker_info, /tosticker
-     - Donasi: /donate
-     - Admin: /admin, /monitor, /stats, /cmd_usage, /ai_usage, /broadcast
-  7. Beri tahu user bahwa command bot saat ini banyak menggunakan bahasa Indonesia.`;
+const systemInstruction = `You are "Bu Sri", a warm but practical ibu kos from Semarang managing Martinos Kos.
+
+PERSONA:
+- Motherly, friendly, and practical. Sound like a real Semarang ibu kos, not a chatbot.
+- Use Bahasa Indonesia mixed naturally with Javanese Semarangan/ngoko alus.
+- Use "Bu", "Le", or "Nduk" naturally — not every sentence, just where it feels warm.
+- Keep WhatsApp replies short and clear. No walls of text.
+
+AUDIENCE — You only serve two groups:
+1. Admin / ibu kos: use operational commands (/kos_info, /listrik, /lunas_listrik, /umumkan).
+2. Registered tenants (penghuni): use their own commands (/listrik_saya, /status_bayar, /bayar_listrik).
+Unregistered senders are blocked before reaching you. Do NOT ask them to register.
+
+STRICT RULES:
+- Do NOT mention Fuenzer Bot, Ridwan Yoga Suryantara, model names, token usage, CPU/RAM, downloader, converter, or any old bot features.
+- Do NOT claim room availability, price, address, or payment status unless data is explicitly given in this conversation.
+- Do NOT reveal any other tenant's data, KTP number, home address, or parent contacts.
+- For database-changing actions, always guide user to use the correct command and the confirmation flow.
+- If asked something outside your knowledge, say so simply and suggest the right command or person to contact.`;
 
 const generationConfig = {
   temperature: 0.7,
@@ -53,17 +66,17 @@ const generationConfig = {
  */
 function formatForWhatsApp(text) {
   if (!text) return text;
-  
+
   let formattedText = text;
-  
+
   // Ubah Bold: **teks** menjadi *teks*
-  formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '*$1*');
-  
+  formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, "*$1*");
+
   // Ubah Header Markdown: ### Judul menjadi *Judul*
-  formattedText = formattedText.replace(/^#+\s*(.*)$/gm, '*$1*');
-  
+  formattedText = formattedText.replace(/^#+\s*(.*)$/gm, "*$1*");
+
   // Ubah Bullet Points: dari * menjadi - agar tidak salah terbaca sebagai bold di WA
-  formattedText = formattedText.replace(/^\s*\*\s+/gm, '- ');
+  formattedText = formattedText.replace(/^\s*\*\s+/gm, "- ");
 
   return formattedText;
 }
@@ -74,7 +87,12 @@ function formatForWhatsApp(text) {
  * @returns {Promise<string>} - Jawaban dari AI
  */
 async function askGemini(message, userId, platform, logUserId) {
-  const detailed = await askGeminiDetailed(message, userId, platform, logUserId);
+  const detailed = await askGeminiDetailed(
+    message,
+    userId,
+    platform,
+    logUserId,
+  );
   return detailed.text;
 }
 
@@ -90,14 +108,14 @@ function trackRequestAndGetRpmStatus() {
 
   const used = requestTimestamps.length;
   const remaining = Math.max(RPM_LIMIT - used, 0);
-  const status = remaining > 0 ? 'AMAN' : 'BATAS RPM';
+  const status = remaining > 0 ? "AMAN" : "BATAS RPM";
 
   return {
     used,
     limit: RPM_LIMIT,
     remaining,
     status,
-    label: `${used}/${RPM_LIMIT} (${status})`
+    label: `${used}/${RPM_LIMIT} (${status})`,
   };
 }
 
@@ -106,13 +124,69 @@ function extractUsageMetadata(response) {
 
   const promptTokenCount = usage.prompt_tokens || 0;
   const candidatesTokenCount = usage.completion_tokens || 0;
-  const totalTokenCount = usage.total_tokens || (promptTokenCount + candidatesTokenCount);
+  const totalTokenCount =
+    usage.total_tokens || promptTokenCount + candidatesTokenCount;
 
   return {
     promptTokenCount,
     candidatesTokenCount,
-    totalTokenCount
+    totalTokenCount,
   };
+}
+
+function coerceAiInput(message) {
+  // Backwards compatible:
+  // - string -> { text }
+  // - { text, images } -> as is
+  if (message && typeof message === "object" && !Array.isArray(message)) {
+    const text =
+      typeof message.text === "string"
+        ? message.text
+        : String(message.text || "");
+    const images = Array.isArray(message.images) ? message.images : [];
+    return { text, images };
+  }
+  return { text: String(message || ""), images: [] };
+}
+
+function buildUserMessageContent(input) {
+  const parts = [];
+
+  if (input.text && String(input.text).trim()) {
+    parts.push({ type: "text", text: String(input.text) });
+  }
+
+  for (const img of input.images || []) {
+    if (!img) continue;
+    // Accept { url } or { base64, mimeType } or { data, mimeType }
+    const url = typeof img.url === "string" ? img.url : "";
+    const mimeType =
+      typeof img.mimeType === "string"
+        ? img.mimeType
+        : typeof img.mimetype === "string"
+          ? img.mimetype
+          : "";
+    const base64 =
+      typeof img.base64 === "string"
+        ? img.base64
+        : typeof img.data === "string"
+          ? img.data
+          : "";
+
+    let finalUrl = url;
+    if (!finalUrl && base64) {
+      const mt = mimeType || "image/jpeg";
+      finalUrl = `data:${mt};base64,${base64}`;
+    }
+
+    if (finalUrl) {
+      parts.push({ type: "image_url", image_url: { url: finalUrl } });
+    }
+  }
+
+  // OpenAI API expects either string or array; if we only have text, keep it simple.
+  if (parts.length === 1 && parts[0].type === "text") return parts[0].text;
+  return parts.length > 0 ? parts : String(input.text || "");
 }
 
 async function askGeminiDetailed(message, userId, platform, logUserId) {
@@ -121,78 +195,109 @@ async function askGeminiDetailed(message, userId, platform, logUserId) {
   try {
     // Validasi API key
     if (!apiKey) {
-      throw new Error('API key OpenRouter tidak ditemukan. Periksa file .env Anda.');
+      throw new Error(
+        "API key OpenRouter tidak ditemukan. Periksa file .env Anda.",
+      );
     }
 
-    modelId = await getActiveModel(userId, platform);
-    
+    const preferredModelId = await getActiveModel(userId, platform);
+    modelId = preferredModelId || FORCED_OPENROUTER_MODEL_ID;
+
     // Log untuk debugging
-    console.log(`Mengirim permintaan ke OpenRouter API dengan model: ${modelId}`);
-    
+    console.log(
+      `Mengirim permintaan ke OpenRouter API dengan model: ${modelId}`,
+    );
+
+    const input = coerceAiInput(message);
+
     const response = await openai.chat.completions.create({
       model: modelId,
       messages: [
-        { role: 'system', content: systemInstruction },
-        { role: 'user', content: String(message || '') }
+        { role: "system", content: systemInstruction },
+        { role: "user", content: buildUserMessageContent(input) },
       ],
-      ...generationConfig
+      ...generationConfig,
     });
 
     const content = response?.choices?.[0]?.message?.content;
     const rawText = Array.isArray(content)
-      ? content.map((part) => part?.text || '').join('\n').trim()
-      : String(content || '').trim();
-    
+      ? content
+          .map((part) => part?.text || "")
+          .join("\n")
+          .trim()
+      : String(content || "").trim();
+
     // Periksa jika ada teks
     if (!rawText) {
-      throw new Error('Tidak ada teks dalam respons dari OpenRouter API');
+      throw new Error("Tidak ada teks dalam respons dari OpenRouter API");
     }
-    
+
     // Ambil teks mentah lalu format untuk WhatsApp
     const finalMessageWA = formatForWhatsApp(rawText);
     const usage = extractUsageMetadata(response);
     const rpm = trackRequestAndGetRpmStatus();
     const modelMeta = getModelById(modelId);
 
-    const aiLogUserId = typeof logUserId === 'string' ? logUserId : userId;
+    const aiLogUserId = typeof logUserId === "string" ? logUserId : userId;
 
     await logAIUsage(
       aiLogUserId,
       platform,
       modelId,
-      String(message || ''),
+      typeof message === "string"
+        ? message
+        : String(coerceAiInput(message).text || ""),
       usage.promptTokenCount,
-      usage.candidatesTokenCount
+      usage.candidatesTokenCount,
     );
-    
+
     return {
       text: finalMessageWA,
       model: modelId,
       modelName: modelMeta?.name || modelId,
       usage,
-      rpm
+      rpm,
     };
-
   } catch (error) {
     const statusCode = error?.status || error?.response?.status;
-    const errorMessage = String(error?.message || 'Unknown error');
+    const errorMessage = String(error?.message || "Unknown error");
     const lowerErrorMessage = errorMessage.toLowerCase();
 
-    console.error('Error saat memanggil OpenRouter API:', statusCode || '-', errorMessage);
-    
+    console.error(
+      "Error saat memanggil OpenRouter API:",
+      statusCode || "-",
+      errorMessage,
+    );
+
     // Pesan Error
-    if (statusCode === 429 || lowerErrorMessage.includes('rate limit')) {
-      throw new Error('429 Rate Limit dari OpenRouter. Batas request tercapai, coba lagi sebentar.');
-    } else if (statusCode === 401 || lowerErrorMessage.includes('unauthorized')) {
-      throw new Error('401 Unauthorized dari OpenRouter. Periksa OPENROUTER_API_KEY Anda.');
-    } else if (statusCode === 403 || lowerErrorMessage.includes('forbidden')) {
-      throw new Error('403 Forbidden dari OpenRouter. API key valid tetapi akses model ditolak.');
-    } else if (statusCode === 404 || lowerErrorMessage.includes('model not found')) {
-      throw new Error(`Model ${modelId || modelName} tidak ditemukan di OpenRouter.`);
+    if (statusCode === 429 || lowerErrorMessage.includes("rate limit")) {
+      throw new Error(
+        "429 Rate Limit dari OpenRouter. Batas request tercapai, coba lagi sebentar.",
+      );
+    } else if (
+      statusCode === 401 ||
+      lowerErrorMessage.includes("unauthorized")
+    ) {
+      throw new Error(
+        "401 Unauthorized dari OpenRouter. Periksa OPENROUTER_API_KEY Anda.",
+      );
+    } else if (statusCode === 403 || lowerErrorMessage.includes("forbidden")) {
+      throw new Error(
+        "403 Forbidden dari OpenRouter. API key valid tetapi akses model ditolak.",
+      );
+    } else if (
+      statusCode === 404 ||
+      lowerErrorMessage.includes("model not found")
+    ) {
+      throw new Error(
+        `Model ${modelId || modelName} tidak ditemukan di OpenRouter.`,
+      );
     } else if (statusCode >= 500 && statusCode <= 599) {
-      throw new Error(`Server OpenRouter sedang gangguan (${statusCode}). Coba lagi nanti.`);
-    } else if (lowerErrorMessage.includes('api key')) {
-      throw new Error('API key OpenRouter tidak valid atau belum diatur.');
+      throw new Error(
+        `Server OpenRouter sedang gangguan (${statusCode}). Coba lagi nanti.`,
+      );
+    } else if (lowerErrorMessage.includes("api key")) {
+      throw new Error("API key OpenRouter tidak valid atau belum diatur.");
     } else {
       throw error;
     }
@@ -207,4 +312,10 @@ async function askAiDetailed(message, userId, platform, logUserId) {
   return askGeminiDetailed(message, userId, platform, logUserId);
 }
 
-module.exports = { askGemini, askGeminiDetailed, askAi, askAiDetailed, modelName };
+module.exports = {
+  askGemini,
+  askGeminiDetailed,
+  askAi,
+  askAiDetailed,
+  modelName,
+};
