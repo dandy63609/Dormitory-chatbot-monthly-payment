@@ -146,9 +146,9 @@ Create/update:
 - `src/services/martinosAnnouncementService.js`
 Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `.env`
 ## 9. Implementation Checklist
-- [ ] White-label `/start` and `/info`
+- [x] White-label `/start` and `/info`
 - [x] Add `/kos_info` admin menu
-- [ ] Add `DEPRECATED_COMMANDS` handler
+- [x] Add `DEPRECATED_COMMANDS` handler
 - [ ] Update Bu Sri persona
 - [x] Implement `tenantService` role lookup using `kamar.hp_penyewa`
 - [x] Implement `electricityService` using `tagihan_listrik`

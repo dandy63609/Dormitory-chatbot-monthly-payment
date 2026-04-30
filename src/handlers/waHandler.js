@@ -701,7 +701,8 @@ class WhatsAppHandler {
       // -----------------------------------------------------------------------
       // ROLE DETECTION — runs on every message before any command processing
       // -----------------------------------------------------------------------
-      const { role, tenant } = await resolveRole(userId);
+      const realId = resolveWhatsAppSenderJid(msg, userId) || userId;
+      const { role, tenant } = await resolveRole(realId);
       if (role === "unknown") {
         await this.sock.sendMessage(
           msg.key.remoteJid,
@@ -727,12 +728,31 @@ class WhatsAppHandler {
       }
 
       // -----------------------------------------------------------------------
-      // PROOF UPLOAD CHECK — tenant sends image/doc after /bayar_listrik
+      // MARTINOS PENDING TEXT CHECK - YA BAYAR / CASH / TRANSFER
       // -----------------------------------------------------------------------
-      if (role === "tenant") {
+      const pendingReply = await handlePendingConfirmation(
+        cleanText,
+        realId,
+        role,
+        tenant,
+        this.sock,
+      );
+      if (pendingReply !== null) {
+        await this.sock.sendMessage(
+          msg.key.remoteJid,
+          { text: formatWhatsAppReply(pendingReply) },
+          { quoted: msg },
+        );
+        return;
+      }
+
+      // Martinos proof upload stub - only invoked for tenant image/document messages.
+      const hasKosProofMedia =
+        !!msg.message?.imageMessage || !!msg.message?.documentMessage;
+      if (role === "tenant" && hasKosProofMedia) {
         const proofHandled = await handleProofUpload(
           msg,
-          userId,
+          realId,
           tenant,
           this.sock,
         );
@@ -743,8 +763,6 @@ class WhatsAppHandler {
         const parts = cleanText.split(" ");
         const command = parts[0].toLowerCase();
         const args = parts.slice(1);
-
-        const realId = resolveWhatsAppSenderJid(msg, userId);
 
         // Log Command with Real Sender ID
         if (command && realId) {
@@ -757,10 +775,11 @@ class WhatsAppHandler {
         const kosReply = await handleKosCommand(
           command,
           args,
-          userId,
+          realId,
           role,
           tenant,
           this.sock,
+          msg,
         );
         if (kosReply !== null) {
           await this.sock.sendMessage(
@@ -1867,25 +1886,13 @@ class WhatsAppHandler {
           }
         }
       } else {
-        // -----------------------------------------------------------------------
-        // PENDING CONFIRMATION CHECK (YA BAYAR / KIRIM PENGUMUMAN)
-        // -----------------------------------------------------------------------
-        const confirmReply = await handlePendingConfirmation(
-          cleanText,
-          userId,
-          role,
-          this.sock,
-        );
-        if (confirmReply !== null) {
-          replyText = confirmReply;
-        } else if (cleanText.length <= 2) {
+        if (cleanText.length <= 2) {
           const shortHeader = "> *PESAN TERLALU PENDEK* 📏";
           const shortBody =
             "Maaf, pesan terlalu pendek atau kurang jelas.\nKetik /info untuk melihat menu ya!";
           replyText = `${shortHeader}\n\n${shortBody}`;
         } else {
           try {
-            const realId = resolveWhatsAppSenderJid(msg, userId);
             const aiResult = await askAiDetailed(
               cleanText,
               userId,
