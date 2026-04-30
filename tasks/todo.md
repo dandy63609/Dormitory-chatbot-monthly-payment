@@ -149,7 +149,7 @@ Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `
 - [x] White-label `/start` and `/info`
 - [x] Add `/kos_info` admin menu
 - [x] Add `DEPRECATED_COMMANDS` handler
-- [ ] Update Bu Sri persona
+- [x] Update Bu Sri persona
 - [x] Implement `tenantService` role lookup using `kamar.hp_penyewa`
 - [x] Implement `electricityService` using `tagihan_listrik`
 - [x] Implement `/status_bayar_info`

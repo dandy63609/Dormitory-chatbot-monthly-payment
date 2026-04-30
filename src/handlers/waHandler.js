@@ -568,6 +568,57 @@ function cleanMentionFromGroupText(text, mentionIds = []) {
   return cleanText.replace(/\s{2,}/g, " ").trim();
 }
 
+function getTenantAiName(tenant) {
+  return tenant?.nama_penyewa || tenant?.name || "Penghuni";
+}
+
+function getTenantAiRoomCode(tenant) {
+  return tenant?.nomor_kamar || tenant?.rooms?.code || "-";
+}
+
+function getTenantAiBuildingName(tenant) {
+  return tenant?.gedung?.nama || tenant?.rooms?.buildings?.name || "-";
+}
+
+function buildRoleAwareAiPrompt(message, role, tenant) {
+  const userMessage = String(message || "").trim();
+
+  if (role === "admin") {
+    return [
+      "[Martinos role context]",
+      "role = admin/ibu kos",
+      "address the user as Bu",
+      "allowed visible commands: /listrik, /umumkan",
+      "verification commands /terima_bukti and /tolak_bukti only appear after a tenant uploads payment proof",
+      "never call admin Nduk or Le",
+      "keep response short and WhatsApp-friendly",
+      "",
+      "[User message]",
+      userMessage,
+    ].join("\n");
+  }
+
+  if (role === "tenant") {
+    return [
+      "[Martinos role context]",
+      "role = registered tenant",
+      `nama_penyewa = ${getTenantAiName(tenant)}`,
+      `nomor_kamar = ${getTenantAiRoomCode(tenant)}`,
+      `gedung = ${getTenantAiBuildingName(tenant)}`,
+      "allowed commands: /bayar_listrik, /status_bayar_info",
+      "for electricity/payment topics, guide back to /bayar_listrik or /status_bayar_info",
+      "if this is a first/general guidance response, proactively remind their room and available electricity commands when relevant",
+      "use Mas/Mbak generally; Le/Nduk only if natural",
+      "keep response short and WhatsApp-friendly",
+      "",
+      "[User message]",
+      userMessage,
+    ].join("\n");
+  }
+
+  return userMessage;
+}
+
 class WhatsAppHandler {
   constructor(sock) {
     this.sock = sock;
@@ -1893,8 +1944,13 @@ class WhatsAppHandler {
           replyText = `${shortHeader}\n\n${shortBody}`;
         } else {
           try {
-            const aiResult = await askAiDetailed(
+            const roleAwarePrompt = buildRoleAwareAiPrompt(
               cleanText,
+              role,
+              tenant,
+            );
+            const aiResult = await askAiDetailed(
+              roleAwarePrompt,
               userId,
               "whatsapp",
               realId,

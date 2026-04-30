@@ -71,6 +71,19 @@ function getTenantName(tenant) {
   return tenant?.nama_penyewa || tenant?.name || 'Penghuni';
 }
 
+function getTenantBuildingName(tenant) {
+  return tenant?.gedung?.nama || tenant?.rooms?.buildings?.name || '-';
+}
+
+function getTenantBuildingLabel(tenant) {
+  const buildingName = getTenantBuildingName(tenant);
+  if (!buildingName || buildingName === '-') return 'Martinos Kos';
+  if (String(buildingName).toLowerCase().includes('martinos kos')) {
+    return buildingName;
+  }
+  return `Martinos Kos ${buildingName}`;
+}
+
 function formatDate(value) {
   if (!value) return '-';
   const date = new Date(value);
@@ -87,29 +100,43 @@ function formatBillStatus(bill) {
 
 function buildKosInfoMenu() {
   return fmt([
-    '> *MENU ADMIN MARTINOS KOS*',
+    '> *Halo, Bu* 🏠',
     '',
-    '*Listrik:*',
-    '- `/listrik <bulan> <tahun>`',
-    '- `/belum_listrik <bulan> <tahun>`',
-    '- `/lunas_listrik <room_code> <bulan> <tahun> <method>`',
+    'Panjenengan terdaftar sebagai admin Martinos Kos.',
+    'Aku iso bantu cek listrik lan ngirim pengumuman.',
+    '',
+    '*Menu Admin:*',
+    '- /listrik <bulan> <tahun> : Cek ringkasan pembayaran listrik',
+    '- /umumkan <target> <pesan> : Kirim pengumuman ke grup kos',
     '',
     '*Contoh:*',
-    '`/listrik mei 2025`',
-    '`/belum_listrik mei 2025`',
-    '`/lunas_listrik M1-1303 mei 2025 cash`',
+    '/listrik mei 2026',
+    '/umumkan semua Besok air mati jam 10 pagi',
+    '',
+    'Catatan:',
+    'Verifikasi pembayaran ora lewat menu iki.',
+    'Nek penghuni kirim bukti dari /bayar_listrik, bot bakal neruske bukti ke admin.',
+    'Admin cukup balas:',
+    '/terima_bukti <kode>',
+    'atau',
+    '/tolak_bukti <kode> <alasan>',
   ]);
 }
 
 function buildTenantInfoMenu(tenant) {
   return fmt([
-    `> *Menu Penghuni Martinos Kos*`,
+    '> *Halo, Mas/Mbak!* 🏠',
     '',
-    `Nama: *${getTenantName(tenant)}*`,
-    `Kamar: *${getTenantRoomCode(tenant)}*`,
+    `Panjenengan terdaftar sebagai penghuni *${getTenantBuildingLabel(tenant)}*.`,
+    `Kamar panjenengan: *${getTenantRoomCode(tenant)}*.`,
     '',
-    '- `/status_bayar_info`',
-    '- `/bayar_listrik`',
+    'Ana sing iso tak bantu?',
+    'Nek arep bayar listrik, ketik */bayar_listrik*.',
+    'Nek arep lihat status pembayaran, ketik */status_bayar_info*.',
+    '',
+    '*Menu Penghuni:*',
+    '- /bayar_listrik : Bayar listrik bulan iki',
+    '- /status_bayar_info : Cek status pembayaran listrik',
   ]);
 }
 
@@ -338,11 +365,13 @@ async function handleKosCommand(command, args, userId, role, tenant, sock, msg) 
   }
 
   if (normalizedCommand === '/start') {
-    return 'Sugeng rawuh nang Martinos Kos. Ketik /info kanggo lihat menu.';
+    if (role === 'admin') return buildKosInfoMenu();
+    if (role === 'tenant') return buildTenantInfoMenu(tenant);
+    return null;
   }
 
   if (normalizedCommand === '/info') {
-    if (role === 'admin') return 'Halo Bu. Gunakan /kos_info untuk menu admin Martinos Kos.';
+    if (role === 'admin') return buildKosInfoMenu();
     if (role === 'tenant') return buildTenantInfoMenu(tenant);
     return null;
   }
