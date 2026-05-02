@@ -16,8 +16,8 @@ const MISTRAL_RPM_LIMIT = parseInt(process.env.MISTRAL_RPM_LIMIT || "15", 10);
 const requestTimestamps = [];
 
 const generationConfig = {
-  temperature: Number.parseFloat(process.env.MISTRAL_TEMPERATURE || "0.5"),
-  max_tokens: parseInt(process.env.MISTRAL_MAX_TOKENS || "500", 10),
+  temperature: Number.parseFloat(process.env.MISTRAL_TEMPERATURE || "0.3"),
+  max_tokens: parseInt(process.env.MISTRAL_MAX_TOKENS || "200", 10),
 };
 
 function trackRequestAndGetRpmStatus() {

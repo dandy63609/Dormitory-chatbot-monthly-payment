@@ -60,6 +60,37 @@ const MAX_PDF_INPUT_SIZE = 10 * 1024 * 1024;
 const MAX_PDF_LOCAL_INPUT_SIZE = 15 * 1024 * 1024;
 const mergeSessions = {};
 
+function isSendTimeoutOrConnectionError(error) {
+  const statusCode = error?.statusCode || error?.output?.statusCode;
+  const message = String(error?.message || "").toLowerCase();
+
+  return (
+    statusCode === 408 ||
+    message.includes("timed out") ||
+    message.includes("timeout") ||
+    message.includes("connection closed") ||
+    message.includes("not open") ||
+    message.includes("socket")
+  );
+}
+
+async function safeSendMessage(sock, jid, content, options) {
+  try {
+    return await sock.sendMessage(jid, content, options);
+  } catch (error) {
+    const statusCode = error?.statusCode || error?.output?.statusCode || "-";
+    const message = String(error?.message || "Unknown sendMessage error");
+
+    if (isSendTimeoutOrConnectionError(error)) {
+      console.warn(`WhatsApp send skipped: ${statusCode} ${message}`);
+      return null;
+    }
+
+    console.error(`WhatsApp send failed: ${statusCode} ${message}`);
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Martinos Kos — deprecated Fuenzer commands and role-gate constants
 // ---------------------------------------------------------------------------
@@ -580,17 +611,65 @@ function getTenantAiBuildingName(tenant) {
   return tenant?.gedung?.nama || tenant?.rooms?.buildings?.name || "-";
 }
 
+function buildAdminDeterministicAiReply(message) {
+  const normalized = String(message || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return null;
+
+  const asksIdentity =
+    /\b(siapa|sapa|sopo)\b/.test(normalized) ||
+    normalized.includes("ini siapa") ||
+    normalized.includes("iki sapa") ||
+    normalized.includes("kamu siapa") ||
+    normalized.includes("anda siapa") ||
+    normalized.includes("sampeyan sapa") ||
+    normalized.includes("jenengan sapa");
+  if (asksIdentity) {
+    return "Kula Bu Sri, asisten Martinos Kos, Bu. Kula bantu urusan listrik lan pengumuman Martinos Kos.";
+  }
+
+  const asksLanguage =
+    normalized.includes("bahasa apa") ||
+    normalized.includes("bahasanya apa") ||
+    normalized.includes("bahasamu apa") ||
+    normalized.includes("bahasane apa") ||
+    normalized.includes("ngomong apa") ||
+    normalized.includes("pakai bahasa apa") ||
+    normalized.includes("pake bahasa apa");
+  if (asksLanguage) {
+    return "Niki bahasa Indonesia campur Jawa Semarangan ringan, Bu. Ben rasane luwih cedhak lan santai.";
+  }
+
+  const saysThanks =
+    normalized.includes("matur suwun") ||
+    normalized.includes("terima kasih") ||
+    normalized.includes("makasih") ||
+    normalized.includes("thanks");
+  if (saysThanks) {
+    return "Nggih Bu, sami-sami.";
+  }
+
+  return null;
+}
+
 function buildRoleAwareAiPrompt(message, role, tenant) {
   const userMessage = String(message || "").trim();
 
   if (role === "admin") {
     return [
       "[Martinos role context]",
-      "ROLE: admin/ibu kos. Always address as Bu. Use natural Semarang-style Indonesian/Javanese mix, not full formal krama. Allowed visible commands: /listrik and /umumkan.",
+      "ROLE: admin/ibu kos. Always address as Bu. Use natural Semarang-style Indonesian/Javanese mix, not full formal krama.",
+      "answer the user's actual question first",
+      "do not mention /listrik or /umumkan in every reply",
+      "mention /listrik only when user asks for help/menu/capabilities or talks about electricity/listrik/payment proof",
+      "mention /umumkan only when user asks for help/menu/capabilities or talks about announcements/pengumuman",
+      "if user asks identity, answer exactly: Kula Bu Sri, asisten Martinos Kos, Bu. Kula bantu urusan listrik lan pengumuman Martinos Kos.",
+      "if user asks language question, answer exactly: Niki bahasa Indonesia campur Jawa Semarangan ringan, Bu. Ben rasane luwih cedhak lan santai.",
       "avoid overly formal words like punika, dipun, ingkang, kanggo/kanggé, or utawi unless really needed",
       "preferred style examples: Nggih Bu, ora popo, mboten nopo-nopo, nek badhe, tinggal ketik, kula bantu cekke, ngirim pengumuman, nggih",
       "verification commands /terima_bukti and /tolak_bukti only appear after a tenant uploads payment proof",
-      "if admin says matur suwun, reply like: Nggih Bu, sami-sami. Nek badhe cek listrik, tinggal ketik /listrik. Nek badhe ngirim pengumuman, tinggal ketik /umumkan nggih.",
+      "if admin says matur suwun, reply briefly without advertising commands: Nggih Bu, sami-sami.",
       "do not advertise /lunas_listrik",
       "never call admin Mas, Mbak, Nduk, or Le",
       "keep response short and WhatsApp-friendly",
@@ -1951,18 +2030,25 @@ class WhatsAppHandler {
           replyText = `${shortHeader}\n\n${shortBody}`;
         } else {
           try {
-            const roleAwarePrompt = buildRoleAwareAiPrompt(
-              cleanText,
-              role,
-              tenant,
-            );
-            const aiResult = await askAiDetailed(
-              roleAwarePrompt,
-              userId,
-              "whatsapp",
-              realId,
-            );
-            replyText = aiResult.text;
+            const deterministicReply =
+              role === "admin" ? buildAdminDeterministicAiReply(cleanText) : null;
+
+            if (deterministicReply) {
+              replyText = deterministicReply;
+            } else {
+              const roleAwarePrompt = buildRoleAwareAiPrompt(
+                cleanText,
+                role,
+                tenant,
+              );
+              const aiResult = await askAiDetailed(
+                roleAwarePrompt,
+                userId,
+                "whatsapp",
+                realId,
+              );
+              replyText = aiResult.text;
+            }
           } catch (error) {
             console.error("Error dari AI:", error);
 
@@ -2014,7 +2100,7 @@ class WhatsAppHandler {
       }
 
       if (replyText) {
-        await this.sock.sendMessage(msg.key.remoteJid, {
+        await safeSendMessage(this.sock, msg.key.remoteJid, {
           text: formatWhatsAppReply(replyText),
         });
       }

@@ -1,6 +1,7 @@
 const supabase = require('../lib/supabaseClient');
 
 let warnedMissingAiLogs = false;
+let warnedMissingCommandLogs = false;
 
 function isMissingTableError(error, tableName) {
   const message = String(error?.message || '').toLowerCase();
@@ -20,6 +21,12 @@ function warnMissingAiLogsOnce() {
   console.warn('AI usage logging disabled: ai_logs table is missing.');
 }
 
+function warnMissingCommandLogsOnce() {
+  if (warnedMissingCommandLogs) return;
+  warnedMissingCommandLogs = true;
+  console.warn('Command logging disabled: command_logs table is missing.');
+}
+
 async function logCommand(userId, platform, command) {
   try {
     const payload = {
@@ -34,9 +41,19 @@ async function logCommand(userId, platform, command) {
 
     const { error } = await supabase.from('command_logs').insert(payload);
     if (error) {
+      if (isMissingTableError(error, 'command_logs')) {
+        warnMissingCommandLogsOnce();
+        return;
+      }
+
       console.error('Failed to write command log:', error.message);
     }
   } catch (error) {
+    if (isMissingTableError(error, 'command_logs')) {
+      warnMissingCommandLogsOnce();
+      return;
+    }
+
     console.error('Unexpected command log error:', error.message);
   }
 }
