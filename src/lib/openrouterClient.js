@@ -1,7 +1,6 @@
 // AI client (OpenRouter via OpenAI SDK)
 const OpenAI = require("openai");
 const {
-  AI_MODELS,
   getActiveModel,
   getModelById,
 } = require("../services/aiPreferenceService");
@@ -23,12 +22,22 @@ const openai = new OpenAI({
   apiKey,
 });
 
-// Force model to a known Vision-capable OpenRouter model
-const FORCED_OPENROUTER_MODEL_ID =
-  "meta-llama/llama-3.2-11b-vision-instruct:free";
-const modelName = FORCED_OPENROUTER_MODEL_ID;
-const DEFAULT_OPENROUTER_MODEL_ID =
-  AI_MODELS["gpt-oss"]?.id || FORCED_OPENROUTER_MODEL_ID;
+const FALLBACK_FREE_OPENROUTER_MODEL_ID =
+  "meta-llama/llama-3.2-3b-instruct:free";
+const ignoredPaidPreferenceLogKeys = new Set();
+
+function getConfiguredOpenRouterModelId() {
+  return (
+    String(process.env.AI_MODEL || "").trim() ||
+    String(process.env.OPENROUTER_MODEL || "").trim() ||
+    FALLBACK_FREE_OPENROUTER_MODEL_ID
+  );
+}
+
+const DEFAULT_OPENROUTER_MODEL_ID = getConfiguredOpenRouterModelId();
+const modelName = DEFAULT_OPENROUTER_MODEL_ID;
+const allowPaidOpenRouterModels =
+  process.env.ALLOW_PAID_OPENROUTER_MODELS === "true";
 const RPM_LIMIT = parseInt(
   process.env.OPENROUTER_RPM_LIMIT || process.env.GEMINI_RPM_LIMIT || "15",
   10,
@@ -204,8 +213,70 @@ function buildUserMessageContent(input) {
   return parts.length > 0 ? parts : String(input.text || "");
 }
 
+function isFreeOpenRouterModel(modelId) {
+  return String(modelId || "").trim().endsWith(":free");
+}
+
+function assertOpenRouterModelAllowed(modelId) {
+  if (!allowPaidOpenRouterModels && !isFreeOpenRouterModel(modelId)) {
+    throw new Error(
+      `Blocked paid OpenRouter model: ${modelId}. Use a :free model or set ALLOW_PAID_OPENROUTER_MODELS=true.`,
+    );
+  }
+}
+
+function getConfiguredFallbackModelIds() {
+  return String(process.env.AI_MODEL_FALLBACKS || "")
+    .split(",")
+    .map((modelId) => modelId.trim())
+    .filter(Boolean);
+}
+
+function dedupeModelIds(modelIds) {
+  const seen = new Set();
+  const deduped = [];
+
+  for (const modelId of modelIds) {
+    if (seen.has(modelId)) continue;
+    seen.add(modelId);
+    deduped.push(modelId);
+  }
+
+  return deduped;
+}
+
+function buildOpenRouterModelList(primaryModelId) {
+  const fallbackModelIds = getConfiguredFallbackModelIds();
+  const modelIds = dedupeModelIds([primaryModelId, ...fallbackModelIds]);
+
+  if (allowPaidOpenRouterModels) {
+    return modelIds;
+  }
+
+  return modelIds.filter((modelId, index) => {
+    if (isFreeOpenRouterModel(modelId)) return true;
+
+    if (index === 0) {
+      assertOpenRouterModelAllowed(modelId);
+    }
+
+    console.warn(`Ignored non-free OpenRouter fallback model: ${modelId}`);
+    return false;
+  });
+}
+
+function logIgnoredPaidPreferenceOnce(userId, platform, modelId) {
+  const logKey = `${platform || ""}:${userId || ""}:${modelId}`;
+  if (ignoredPaidPreferenceLogKeys.has(logKey)) return;
+
+  ignoredPaidPreferenceLogKeys.add(logKey);
+  console.warn(
+    `Saved preferred OpenRouter model ignored because it is not free: ${modelId}`,
+  );
+}
+
 async function askGeminiDetailed(message, userId, platform, logUserId) {
-  let modelId = modelName;
+  let modelId = DEFAULT_OPENROUTER_MODEL_ID;
 
   try {
     // Validasi API key
@@ -217,7 +288,21 @@ async function askGeminiDetailed(message, userId, platform, logUserId) {
 
     try {
       const preferredModelId = await getActiveModel(userId, platform);
-      modelId = preferredModelId || DEFAULT_OPENROUTER_MODEL_ID;
+      const normalizedPreferredModelId = String(preferredModelId || "").trim();
+
+      if (
+        normalizedPreferredModelId &&
+        (isFreeOpenRouterModel(normalizedPreferredModelId) ||
+          allowPaidOpenRouterModels)
+      ) {
+        modelId = normalizedPreferredModelId;
+      } else if (normalizedPreferredModelId) {
+        logIgnoredPaidPreferenceOnce(
+          userId,
+          platform,
+          normalizedPreferredModelId,
+        );
+      }
     } catch (preferenceError) {
       console.warn(
         "AI preference lookup failed; using default model:",
@@ -226,15 +311,33 @@ async function askGeminiDetailed(message, userId, platform, logUserId) {
       modelId = DEFAULT_OPENROUTER_MODEL_ID;
     }
 
+    const input = coerceAiInput(message);
+
+    assertOpenRouterModelAllowed(modelId);
+    const openRouterModelList = buildOpenRouterModelList(modelId);
+    const fallbackModelIds = openRouterModelList.slice(1);
+
+    console.log(`OpenRouter primary model: ${modelId}`);
+    console.log(
+      `OpenRouter fallback models: ${
+        fallbackModelIds.length ? fallbackModelIds.join(", ") : "(none)"
+      }`,
+    );
+    console.log(
+      `OpenRouter paid models allowed: ${allowPaidOpenRouterModels}`,
+    );
+    console.log(
+      `OpenRouter final model list: ${openRouterModelList.join(", ")}`,
+    );
+
     // Log untuk debugging
     console.log(
       `Mengirim permintaan ke OpenRouter API dengan model: ${modelId}`,
     );
 
-    const input = coerceAiInput(message);
-
     const response = await openai.chat.completions.create({
       model: modelId,
+      models: openRouterModelList,
       messages: [
         { role: "system", content: systemInstruction },
         { role: "user", content: buildUserMessageContent(input) },

@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const qrcode = require('qrcode-terminal');
 
+const baileysLogger = pino({ level: 'silent' });
+
 async function connectToWhatsApp() {
     // Membuat folder auth/whatsapp jika belum ada
     const authFolder = path.join(__dirname, '..', '..', 'auth', 'whatsapp');
@@ -20,7 +22,7 @@ async function connectToWhatsApp() {
 
     // Membuat socket connection dengan opsi tambahan
     const sock = makeWASocket({
-        logger: pino({ level: 'silent' }),
+        logger: baileysLogger,
         auth: state,
         // Opsi untuk meningkatkan koneksi
         connectTimeoutMs: 30000,
@@ -59,7 +61,6 @@ async function connectToWhatsApp() {
 
     // Menangani event connection.update
     sock.ev.on('connection.update', (update) => {
-        console.log('Log Update:', JSON.stringify(update, null, 2));
         const { connection, lastDisconnect, qr, isNewLogin } = update;
         
         // Tampilkan QR code jika tersedia

@@ -1964,7 +1964,7 @@ class WhatsAppHandler {
             );
             replyText = aiResult.text;
           } catch (error) {
-            console.error("Error dari OpenRouter AI:", error);
+            console.error("Error dari AI:", error);
 
             let errorHeader;
             let errorBody;
@@ -1979,16 +1979,26 @@ class WhatsAppHandler {
             ) {
               errorHeader = "> *AKSES AI DITOLAK* 🔒";
               errorBody =
-                "Maaf, akses AI ditolak (401/403).\nAdmin perlu memeriksa API key OpenRouter.";
-            } else if (message.includes("tidak ditemukan di OpenRouter")) {
+                "Maaf, akses AI ditolak (401/403).\nAdmin perlu memeriksa API key AI.";
+            } else if (
+              message.includes("tidak ditemukan di OpenRouter") ||
+              message.includes("tidak ditemukan di Mistral")
+            ) {
               errorHeader = "> *MODEL AI TIDAK DITEMUKAN* 🔍";
               errorBody =
                 "Maaf, model AI yang dipakai sedang tidak tersedia.\nCoba lagi nanti.";
-            } else if (message.includes("API key OpenRouter")) {
+            } else if (
+              message.includes("API key OpenRouter") ||
+              message.includes("API key Mistral") ||
+              message.includes("AI_PROVIDER tidak valid")
+            ) {
               errorHeader = "> *API KEY AI TIDAK VALID* 🔑";
               errorBody =
-                "Maaf, konfigurasi OpenRouter belum lengkap atau tidak valid.\nAdmin telah diberitahu.";
-            } else if (message.includes("Server OpenRouter sedang gangguan")) {
+                "Maaf, konfigurasi AI belum lengkap atau tidak valid.\nAdmin telah diberitahu.";
+            } else if (
+              message.includes("Server OpenRouter sedang gangguan") ||
+              message.includes("Server Mistral sedang gangguan")
+            ) {
               errorHeader = "> *SERVER AI GANGGUAN* 🛠️";
               errorBody =
                 "Maaf, server AI sedang gangguan.\nSilakan coba lagi nanti.";

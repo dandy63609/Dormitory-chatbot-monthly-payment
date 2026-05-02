@@ -1650,7 +1650,7 @@ function setupTelegramBot() {
                 const finalReply = formatBodyBold(formattedReply);
                 await ctx.reply(finalReply, { parse_mode: 'HTML' });
             } catch (error) {
-                console.error('Error from OpenRouter AI in Telegram:', error);
+                console.error('Error from AI in Telegram:', error);
                 
                 let errorHeader, errorBody;
                 const message = String(error?.message || '');
@@ -1659,14 +1659,14 @@ function setupTelegramBot() {
                     errorBody = 'Maaf, request AI sedang padat (429 Rate Limit).\nSilakan coba lagi beberapa saat.';
                 } else if (message.includes('401 Unauthorized') || message.includes('403 Forbidden')) {
                     errorHeader = '<b>AKSES AI DITOLAK</b> 🔒';
-                    errorBody = 'Maaf, akses AI ditolak (401/403).\nAdmin perlu memeriksa API key OpenRouter.';
-                } else if (message.includes('tidak ditemukan di OpenRouter')) {
+                    errorBody = 'Maaf, akses AI ditolak (401/403).\nAdmin perlu memeriksa API key AI.';
+                } else if (message.includes('tidak ditemukan di OpenRouter') || message.includes('tidak ditemukan di Mistral')) {
                     errorHeader = '<b>MODEL AI TIDAK DITEMUKAN</b> 🔍';
                     errorBody = 'Maaf, model AI yang dipakai sedang tidak tersedia.\nCoba lagi nanti.';
-                } else if (message.includes('API key OpenRouter')) {
+                } else if (message.includes('API key OpenRouter') || message.includes('API key Mistral') || message.includes('AI_PROVIDER tidak valid')) {
                     errorHeader = '<b>API KEY AI TIDAK VALID</b> 🔑';
-                    errorBody = 'Maaf, konfigurasi OpenRouter belum lengkap atau tidak valid.\nAdmin telah diberitahu.';
-                } else if (message.includes('Server OpenRouter sedang gangguan')) {
+                    errorBody = 'Maaf, konfigurasi AI belum lengkap atau tidak valid.\nAdmin telah diberitahu.';
+                } else if (message.includes('Server OpenRouter sedang gangguan') || message.includes('Server Mistral sedang gangguan')) {
                     errorHeader = '<b>SERVER AI GANGGUAN</b> 🛠️';
                     errorBody = 'Maaf, server AI sedang gangguan.\nSilakan coba lagi nanti.';
                 } else {

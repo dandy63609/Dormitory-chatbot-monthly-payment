@@ -1,9 +1,19 @@
 const supabase = require("../lib/supabaseClient");
 
-const DEFAULT_AI_MODEL_ALIAS = "gpt-oss";
+const DEFAULT_AI_MODEL_ALIAS = "llama-3b-free";
 let warnedMissingUserPreferences = false;
 
 const AI_MODELS = {
+  "llama-3b-free": {
+    id: "meta-llama/llama-3.2-3b-instruct:free",
+    name: "Meta Llama 3.2 3B Instruct Free",
+    type: "free",
+    description: "Model gratis ringan untuk instruksi teks umum.",
+    inputPrice: "-",
+    outputPrice: "-",
+    context: "131k",
+    maxOut: "8k",
+  },
   "gpt-oss": {
     id: "openai/gpt-oss-120b",
     name: "OpenAI GPT-OSS 120B",

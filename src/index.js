@@ -1,13 +1,50 @@
 // Main entry point
+const originalConsoleLog = console.log;
+const originalConsoleInfo = console.info;
+
+function shouldSuppressConsoleOutput(args) {
+    return typeof args[0] === 'string' && args[0].startsWith('Closing session');
+}
+
+console.log = (...args) => {
+    if (shouldSuppressConsoleOutput(args)) {
+        return;
+    }
+    originalConsoleLog(...args);
+};
+
+console.info = (...args) => {
+    if (shouldSuppressConsoleOutput(args)) {
+        return;
+    }
+    originalConsoleInfo(...args);
+};
+
 require('dotenv').config(); // Load environment variables from .env file
 
 // Log untuk memastikan environment variable terbaca (opsional)
-if (!process.env.OPENROUTER_API_KEY) {
+const aiProvider = String(process.env.AI_PROVIDER || 'mistral').trim().toLowerCase();
+console.log(`AI provider: ${aiProvider}`);
+
+if (aiProvider === 'mistral') {
+    if (!process.env.MISTRAL_API_KEY) {
+        console.warn('Peringatan: MISTRAL_API_KEY tidak ditemukan di environment variables.');
+        console.warn('   Buat file .env di root dengan: MISTRAL_API_KEY=your_key_here');
+    } else {
+        console.log('MISTRAL_API_KEY ditemukan dan siap digunakan.');
+    }
+    console.log(`Mistral model: ${process.env.MISTRAL_MODEL || 'ministral-3b-latest'}`);
+}
+if (aiProvider === 'openrouter' && !process.env.OPENROUTER_API_KEY) {
     console.warn('⚠️  Peringatan: OPENROUTER_API_KEY tidak ditemukan di environment variables.');
     console.warn('   Buat file .env di root dengan: OPENROUTER_API_KEY=your_key_here');
     console.warn('   Dapatkan API key dari: https://openrouter.ai/keys');
-} else {
+} else if (aiProvider === 'openrouter') {
     console.log('✅ OPENROUTER_API_KEY ditemukan dan siap digunakan.');
+}
+
+if (aiProvider !== 'mistral' && aiProvider !== 'openrouter') {
+    console.warn(`AI_PROVIDER tidak valid: ${aiProvider}. Gunakan "mistral" atau "openrouter".`);
 }
 
 const settings = require('./config/settings');
