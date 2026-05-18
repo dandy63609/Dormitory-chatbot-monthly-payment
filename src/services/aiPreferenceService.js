@@ -1,6 +1,6 @@
 const supabase = require("../lib/supabaseClient");
 
-const DEFAULT_AI_MODEL_ALIAS = "llama-3b-free";
+const DEFAULT_AI_MODEL_ALIAS = "gpt-oss";
 let warnedMissingUserPreferences = false;
 
 const AI_MODELS = {
@@ -107,16 +107,6 @@ const AI_MODELS = {
     outputPrice: "$0.29/M",
     context: "262k",
     maxOut: "65k",
-  },
-  mistral: {
-    id: "mistralai/mistral-nemo",
-    name: "Mistral Nemo",
-    type: "premium",
-    description: "12B params, model kolaborasi tangguh dari Mistral & NVIDIA.",
-    inputPrice: "$0.02/M",
-    outputPrice: "$0.04/M",
-    context: "131k",
-    maxOut: "131k",
   },
   "qwen-flash": {
     id: "qwen/qwen3.5-flash-02-23",

@@ -23,35 +23,27 @@ console.info = (...args) => {
 require('dotenv').config(); // Load environment variables from .env file
 
 // Log untuk memastikan environment variable terbaca (opsional)
-const aiProvider = String(process.env.AI_PROVIDER || 'mistral').trim().toLowerCase();
-console.log(`AI provider: ${aiProvider}`);
+const openRouterModel =
+    String(process.env.AI_MODEL || '').trim()
+    || String(process.env.OPENROUTER_MODEL || '').trim()
+    || 'openai/gpt-oss-120b';
+const paidOpenRouterModelsAllowed = process.env.ALLOW_PAID_OPENROUTER_MODELS === 'true';
 
-if (aiProvider === 'mistral') {
-    if (!process.env.MISTRAL_API_KEY) {
-        console.warn('Peringatan: MISTRAL_API_KEY tidak ditemukan di environment variables.');
-        console.warn('   Buat file .env di root dengan: MISTRAL_API_KEY=your_key_here');
-    } else {
-        console.log('MISTRAL_API_KEY ditemukan dan siap digunakan.');
-    }
-    console.log(`Mistral model: ${process.env.MISTRAL_MODEL || 'ministral-3b-latest'}`);
-}
-if (aiProvider === 'openrouter' && !process.env.OPENROUTER_API_KEY) {
+console.log('AI provider: openrouter');
+console.log(`OpenRouter model: ${openRouterModel}`);
+console.log(`Paid OpenRouter models allowed: ${paidOpenRouterModelsAllowed}`);
+
+if (!process.env.OPENROUTER_API_KEY) {
     console.warn('⚠️  Peringatan: OPENROUTER_API_KEY tidak ditemukan di environment variables.');
     console.warn('   Buat file .env di root dengan: OPENROUTER_API_KEY=your_key_here');
     console.warn('   Dapatkan API key dari: https://openrouter.ai/keys');
-} else if (aiProvider === 'openrouter') {
+} else {
     console.log('✅ OPENROUTER_API_KEY ditemukan dan siap digunakan.');
-}
-
-if (aiProvider !== 'mistral' && aiProvider !== 'openrouter') {
-    console.warn(`AI_PROVIDER tidak valid: ${aiProvider}. Gunakan "mistral" atau "openrouter".`);
 }
 
 const settings = require('./config/settings');
 const { connectToWhatsApp } = require('./lib/waClient');
 const WhatsAppHandler = require('./handlers/waHandler');
-const { setupTelegramBot } = require('./handlers/teleHandler');
-const telegramBot = require('./lib/telegramClient');
 const { startCronJobs } = require('./jobs/serverMonitor');
 
 console.log(`Starting ${settings.app.name} v${settings.app.version} in ${settings.app.env} mode`);
@@ -111,16 +103,7 @@ async function main() {
     // Start WhatsApp bot
     await startWhatsAppBot();
     
-    // Start Telegram bot
-    if (process.env.TELEGRAM_BOT_TOKEN) {
-        setupTelegramBot();
-        telegramBot.launch();
-        console.log('Telegram Bot berhasil dijalankan!');
-    } else {
-        console.warn('⚠️  TELEGRAM_BOT_TOKEN tidak ditemukan. Bot Telegram tidak akan berjalan.');
-    }
-
-    monitorCronTask = startCronJobs(telegramBot, () => waSocket);
+    monitorCronTask = startCronJobs(() => waSocket);
     
     console.log('Semua layanan berjalan!');
 }
@@ -136,10 +119,6 @@ process.on('SIGINT', () => {
         monitorCronTask = null;
     }
     stopWhatsAppBot();
-    // Stop Telegram bot
-    if (process.env.TELEGRAM_BOT_TOKEN) {
-        telegramBot.stop('SIGINT');
-    }
     console.log('Shutdown selesai.');
     process.exit(0);
 });
@@ -151,10 +130,6 @@ process.on('SIGTERM', () => {
         monitorCronTask = null;
     }
     stopWhatsAppBot();
-    // Stop Telegram bot
-    if (process.env.TELEGRAM_BOT_TOKEN) {
-        telegramBot.stop('SIGTERM');
-    }
     console.log('Shutdown selesai.');
     process.exit(0);
 });

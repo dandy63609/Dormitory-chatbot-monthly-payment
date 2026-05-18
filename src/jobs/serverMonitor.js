@@ -1,8 +1,10 @@
 const cron = require('node-cron');
 const { checkWebsites, formatMonitorMessage } = require('../services/monitorService');
+const { sendElectricityPaymentReminders } = require('../services/electricityReminderService');
 
 const MONITOR_CRON_EXPRESSION = '0 6 * * *';
-const URGENT_ALERT_HEADER = '> 🚨 URGENT: SERVER DOWN ALERT!';
+const ELECTRICITY_REMINDER_CRON_EXPRESSION = '0 8 10 * *';
+const URGENT_ALERT_HEADER = '> URGENT: SERVER DOWN ALERT!';
 
 function parseCommaSeparatedList(value) {
   return String(value || '')
@@ -49,24 +51,8 @@ async function sendWhatsAppAlerts(waSocket, adminNumbers, message) {
   }
 }
 
-async function sendTelegramAlerts(telegramBot, adminIds, message) {
-  const telegramClient = telegramBot?.telegram;
-
-  if (!telegramClient || typeof telegramClient.sendMessage !== 'function') {
-    return;
-  }
-
-  for (const adminId of adminIds) {
-    try {
-      await telegramClient.sendMessage(adminId, message);
-    } catch (error) {
-      console.error(`Gagal mengirim alert monitor ke Telegram admin ${adminId}:`, error.message || error);
-    }
-  }
-}
-
-function startCronJobs(telegramBot, waSocket) {
-  const task = cron.schedule(MONITOR_CRON_EXPRESSION, async () => {
+function startCronJobs(waSocket) {
+  const monitorTask = cron.schedule(MONITOR_CRON_EXPRESSION, async () => {
     try {
       const { results, hasError } = await checkWebsites();
 
@@ -76,22 +62,38 @@ function startCronJobs(telegramBot, waSocket) {
 
       const alertMessage = formatMonitorMessage(results, URGENT_ALERT_HEADER, 'whatsapp');
       const adminWaNumbers = parseCommaSeparatedList(process.env.ADMIN_WA_NUMBERS);
-      const adminTeleIds = parseCommaSeparatedList(process.env.ADMIN_TELE_IDS);
       const currentWaSocket = resolveWaSocket(waSocket);
 
-      await Promise.all([
-        sendWhatsAppAlerts(currentWaSocket, adminWaNumbers, alertMessage),
-        sendTelegramAlerts(telegramBot, adminTeleIds, alertMessage)
-      ]);
+      await sendWhatsAppAlerts(currentWaSocket, adminWaNumbers, alertMessage);
     } catch (error) {
       console.error('Error saat menjalankan cron monitor server:', error.message || error);
     }
   });
 
+  const electricityReminderTask = cron.schedule(ELECTRICITY_REMINDER_CRON_EXPRESSION, async () => {
+    try {
+      const currentWaSocket = resolveWaSocket(waSocket);
+      const result = await sendElectricityPaymentReminders(currentWaSocket);
+      console.log(
+        `Reminder listrik ${result.periodLabel}: terkirim ${result.sentCount}/${result.totalCount}, skip ${result.skippedCount}`,
+      );
+    } catch (error) {
+      console.error('Error saat menjalankan reminder listrik:', error.message || error);
+    }
+  });
+
   console.log(`Cron monitor server aktif dengan jadwal ${MONITOR_CRON_EXPRESSION}`);
-  return task;
+  console.log(`Cron reminder listrik aktif dengan jadwal ${ELECTRICITY_REMINDER_CRON_EXPRESSION}`);
+
+  return {
+    stop() {
+      monitorTask.stop();
+      electricityReminderTask.stop();
+    },
+  };
 }
 
 module.exports = {
-  startCronJobs
+  startCronJobs,
+  ELECTRICITY_REMINDER_CRON_EXPRESSION,
 };

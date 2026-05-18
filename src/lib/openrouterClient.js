@@ -22,15 +22,17 @@ const openai = new OpenAI({
   apiKey,
 });
 
+const DEFAULT_GPT_OSS_OPENROUTER_MODEL_ID = "openai/gpt-oss-120b";
 const FALLBACK_FREE_OPENROUTER_MODEL_ID =
   "meta-llama/llama-3.2-3b-instruct:free";
 const ignoredPaidPreferenceLogKeys = new Set();
+let warnedPaidDefaultFallback = false;
 
 function getConfiguredOpenRouterModelId() {
   return (
     String(process.env.AI_MODEL || "").trim() ||
     String(process.env.OPENROUTER_MODEL || "").trim() ||
-    FALLBACK_FREE_OPENROUTER_MODEL_ID
+    DEFAULT_GPT_OSS_OPENROUTER_MODEL_ID
   );
 }
 
@@ -59,13 +61,13 @@ PERSONA:
 - Keep WhatsApp replies short and clear. No walls of text.
 
 AUDIENCE — You only serve two groups:
-1. Admin / ibu kos: menu guidance only includes /listrik and /umumkan. Admin can use /kos_info to see the menu.
+1. Admin / ibu kos: menu guidance includes /listrik, /sudah_listrik, /belum_listrik, and /umumkan. Admin can use /kos_info to see the menu.
 2. Registered tenants (penghuni): menu guidance only includes /bayar_listrik and /status_bayar_info.
 Unregistered senders are blocked before reaching you. Do NOT ask them to register.
 
 STRICT RULES:
 - Do NOT mention Fuenzer Bot, Ridwan Yoga Suryantara, model names, token usage, CPU/RAM, downloader, converter, or any old bot features.
-- Do NOT recommend /lunas_listrik as an available admin menu command.
+- Mention /lunas_listrik only as an admin manual fallback for recording payment without tenant proof.
 - Never mention /listrik_saya, /status_bayar, or /upload_bukti.
 - Explain /terima_bukti and /tolak_bukti only when discussing proof verification after a tenant uploads payment proof.
 - For tenant payment topics, guide back to /bayar_listrik or /status_bayar_info.
@@ -220,7 +222,7 @@ function isFreeOpenRouterModel(modelId) {
 function assertOpenRouterModelAllowed(modelId) {
   if (!allowPaidOpenRouterModels && !isFreeOpenRouterModel(modelId)) {
     throw new Error(
-      `Blocked paid OpenRouter model: ${modelId}. Use a :free model or set ALLOW_PAID_OPENROUTER_MODELS=true.`,
+      `Blocked paid OpenRouter model: ${modelId}. Set ALLOW_PAID_OPENROUTER_MODELS=true to use GPT-OSS 120B.`,
     );
   }
 }
@@ -265,6 +267,28 @@ function buildOpenRouterModelList(primaryModelId) {
   });
 }
 
+function getAllowedPrimaryModelId(modelId) {
+  const normalizedModelId = String(modelId || "").trim();
+
+  if (allowPaidOpenRouterModels || isFreeOpenRouterModel(normalizedModelId)) {
+    return normalizedModelId;
+  }
+
+  const configuredFreeFallback = getConfiguredFallbackModelIds().find(
+    (fallbackModelId) => isFreeOpenRouterModel(fallbackModelId),
+  );
+  const freeModelId = configuredFreeFallback || FALLBACK_FREE_OPENROUTER_MODEL_ID;
+
+  if (!warnedPaidDefaultFallback) {
+    warnedPaidDefaultFallback = true;
+    console.warn(
+      `Configured OpenRouter model ${normalizedModelId} is paid, but paid models are disabled. Using ${freeModelId}.`,
+    );
+  }
+
+  return freeModelId;
+}
+
 function logIgnoredPaidPreferenceOnce(userId, platform, modelId) {
   const logKey = `${platform || ""}:${userId || ""}:${modelId}`;
   if (ignoredPaidPreferenceLogKeys.has(logKey)) return;
@@ -276,7 +300,7 @@ function logIgnoredPaidPreferenceOnce(userId, platform, modelId) {
 }
 
 async function askGeminiDetailed(message, userId, platform, logUserId) {
-  let modelId = DEFAULT_OPENROUTER_MODEL_ID;
+  let modelId = getAllowedPrimaryModelId(DEFAULT_OPENROUTER_MODEL_ID);
 
   try {
     // Validasi API key

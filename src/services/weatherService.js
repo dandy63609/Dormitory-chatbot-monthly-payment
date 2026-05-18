@@ -1,26 +1,36 @@
 // Weather service
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const axios = require('axios');
 const { formatBulletList } = require('../utils/formatter');
 
 async function getCuaca(kota) {
     try {
-        const apiKey = process.env.OPENWEATHER_API_KEY;
+        const apiKey = process.env.OPENWEATHER_API_KEY || process.env.WEATHER_API_KEY;
         if (!apiKey) {
             return '> *ERROR API* ❌\n\nAPI key OpenWeather tidak ditemukan. Silakan hubungi administrator.';
         }
         
-        const response = await fetch(
-            `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(kota)}&appid=${apiKey}&units=metric&lang=id`
+        const response = await axios.get(
+            'https://api.openweathermap.org/data/2.5/weather',
+            {
+                params: {
+                    q: kota,
+                    appid: apiKey,
+                    units: 'metric',
+                    lang: 'id',
+                },
+                timeout: 15000,
+                validateStatus: () => true,
+            },
         );
         
-        if (!response.ok) {
+        if (response.status < 200 || response.status >= 300) {
             if (response.status === 404) {
                 return `> *KOTA TIDAK DITEMUKAN* ❌\n\nKota "${kota}" tidak ditemukan dalam database cuaca.\nPastikan penulisan nama kota benar.`;
             }
             return `> *ERROR CUACA* ❌\n\nGagal mengambil data cuaca. Status: ${response.status}`;
         }
         
-        const data = await response.json();
+        const data = response.data;
         
         const header = '> *INFO CUACA HARI INI* 🌤️';
         const body = formatBulletList({

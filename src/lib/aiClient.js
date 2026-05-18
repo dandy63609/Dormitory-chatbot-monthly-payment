@@ -1,46 +1,19 @@
-const ALLOWED_AI_PROVIDERS = new Set(["mistral", "openrouter"]);
-const DEFAULT_AI_PROVIDER = "mistral";
+const openrouterClient = require("./openrouterClient");
 
 function getAiProvider() {
-  const provider = String(process.env.AI_PROVIDER || DEFAULT_AI_PROVIDER)
-    .trim()
-    .toLowerCase();
-
-  if (!ALLOWED_AI_PROVIDERS.has(provider)) {
-    throw new Error(
-      `AI_PROVIDER tidak valid: ${provider}. Gunakan "mistral" atau "openrouter".`,
-    );
-  }
-
-  return provider;
-}
-
-function getProviderClient() {
-  const provider = getAiProvider();
-
-  if (provider === "openrouter") {
-    console.log("AI provider: openrouter");
-    return require("./openrouterClient");
-  }
-
-  return require("./mistralClient");
+  return "openrouter";
 }
 
 async function askAi(message, userId, platform, logUserId) {
-  return getProviderClient().askAi(message, userId, platform, logUserId);
+  return openrouterClient.askAi(message, userId, platform, logUserId);
 }
 
 async function askAiDetailed(message, userId, platform, logUserId) {
-  return getProviderClient().askAiDetailed(
-    message,
-    userId,
-    platform,
-    logUserId,
-  );
+  return openrouterClient.askAiDetailed(message, userId, platform, logUserId);
 }
 
 function getModelName() {
-  return getProviderClient().modelName;
+  return openrouterClient.modelName;
 }
 
 module.exports = {

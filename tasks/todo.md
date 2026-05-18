@@ -1,4 +1,4 @@
-﻿# Martinos Kos Assistant â€” MVP Todo
+# Martinos Kos Assistant â€” MVP Todo
 ## 0. Safety Rules
 - Branch: `martinos-kos-adapter`
 - Do not touch `auth/`
@@ -49,6 +49,8 @@ Not-registered reply:
 Admin commands:
 - `/kos_info`
 - `/listrik <bulan> <tahun>`
+- `/sudah_listrik <bulan> <tahun>`
+- `/sudah-listrik <bulan> <tahun>`
 - `/belum_listrik <bulan> <tahun>`
 - `/lunas_listrik <room_code> <bulan> <tahun> <method>`
 - `/terima_bukti <code>`
@@ -106,13 +108,20 @@ Admin reject `/tolak_bukti <code> <reason>`:
 - Admin only
 - List unpaid room code + tenant name + building
 - Do not include phone, KTP, parent contact, or address
+`/sudah_listrik <bulan> <tahun>` or `/sudah-listrik <bulan> <tahun>`:
+- Admin only
+- List paid room code + tenant name + building + method/date when available
+- Do not include phone, KTP, parent contact, or address
 `/lunas_listrik <room_code> <bulan> <tahun> <method>`:
 - Admin only
 - Ask confirmation first
 - Only update after admin replies `YA BAYAR`
+- Manual fallback for recording payment without tenant proof
 `YA BAYAR`:
 - Only works if admin has pending payment confirmation
-- Update `tagihan_listrik` to lunas
+- If the bill exists and is unpaid, update `tagihan_listrik` to lunas
+- If the bill does not exist, create a paid `tagihan_listrik` row
+- If the bill is already lunas, do not update it again
 ## 6. Announcement Flow
 `/umumkan <target> <message>`:
 - Admin only
@@ -158,8 +167,9 @@ Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `
 - [x] Implement proof forwarding to admin
 - [x] Implement `/terima_bukti` and `/tolak_bukti`
 - [x] Implement admin `/listrik` and `/belum_listrik`
+- [x] Implement admin `/sudah_listrik`
 - [x] Implement `/lunas_listrik` + `YA BAYAR`
-- [ ] Implement `/umumkan` + `KIRIM PENGUMUMAN`
+- [x] Implement `/umumkan` + `KIRIM PENGUMUMAN`
 - [ ] Run `npm start`
 - [ ] Manual WhatsApp test
 ## 10. Manual Test Checklist
@@ -174,7 +184,17 @@ Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `
 - [ ] Admin `/tolak_bukti CODE reason` â†’ no DB update + tenant notified
 - [ ] Admin `/listrik mei 2025` â†’ summary
 - [ ] Admin `/belum_listrik mei 2025` â†’ unpaid list
+- [ ] Admin `/sudah_listrik mei 2025` â†’ paid list
+- [ ] Admin `/sudah-listrik mei 2025` â†’ paid list
 - [ ] Admin `/lunas_listrik M1-1303 mei 2025 cash` â†’ asks `YA BAYAR`
 - [ ] Admin `YA BAYAR` â†’ `tagihan_listrik` becomes lunas
 - [ ] Admin `/umumkan semua test` â†’ asks confirmation
 - [ ] Admin `KIRIM PENGUMUMAN` â†’ sent to groups
+## 11. Post-MVP Cleanup
+Do this only after the WhatsApp manual checklist passes:
+- [ ] Remove legacy Telegram production code after checking shared utilities
+- [ ] Remove `src/handlers/teleHandler.js` if no shared code depends on it
+- [ ] Remove `src/lib/telegramClient.js` if no shared code depends on it
+- [ ] Remove Telegram-only branches from shared services/utilities when safe
+- [ ] Remove `telegraf` from `package.json` and `package-lock.json`
+- [ ] Update README files so they describe Martinos WhatsApp-only production use

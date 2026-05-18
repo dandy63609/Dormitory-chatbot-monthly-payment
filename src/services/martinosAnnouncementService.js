@@ -2,9 +2,43 @@ const supabase = require('../lib/supabaseClient');
 
 // Valid announcement targets
 const VALID_TARGETS = ['semua', 'martinos1', 'martinos2', 'martinos3'];
+const TARGET_LABELS = {
+  semua: 'Semua Martinos',
+  martinos1: 'Martinos 1',
+  martinos2: 'Martinos 2',
+  martinos3: 'Martinos 3',
+};
 
 // ⚠️ CONFIRM: activity_logs table may not exist yet
 const ACTIVITY_LOGS_TABLE = 'activity_logs';
+
+function getConfiguredGroupMap() {
+  return {
+    martinos1: process.env.MARTINOS_GROUP_1_JID,
+    martinos2: process.env.MARTINOS_GROUP_2_JID,
+    martinos3: process.env.MARTINOS_GROUP_3_JID,
+  };
+}
+
+function getAnnouncementGroupStatuses(target) {
+  const normalised = String(target || '').trim().toLowerCase();
+  if (!VALID_TARGETS.includes(normalised)) {
+    throw new Error(
+      `Target tidak valid: "${target}". Gunakan salah satu dari: ${VALID_TARGETS.join(', ')}.`
+    );
+  }
+
+  const groupMap = getConfiguredGroupMap();
+  const targetKeys = normalised === 'semua'
+    ? ['martinos1', 'martinos2', 'martinos3']
+    : [normalised];
+
+  return targetKeys.map((key) => ({
+    target: key,
+    label: TARGET_LABELS[key] || key,
+    configured: Boolean(groupMap[key] && String(groupMap[key]).trim()),
+  }));
+}
 
 /**
  * Resolves a target string to one or more WhatsApp group JIDs sourced
@@ -25,11 +59,7 @@ function getGroupJids(target) {
   }
 
   // JID map — values come from environment variables only
-  const JID_MAP = {
-    martinos1: process.env.MARTINOS_GROUP_1_JID,
-    martinos2: process.env.MARTINOS_GROUP_2_JID,
-    martinos3: process.env.MARTINOS_GROUP_3_JID
-  };
+  const JID_MAP = getConfiguredGroupMap();
 
   let jids;
   if (normalised === 'semua') {
@@ -52,6 +82,19 @@ function getGroupJids(target) {
   }
 
   return jids;
+}
+
+function getAnnouncementTargetSummary(target) {
+  const normalised = String(target || '').trim().toLowerCase();
+  const jids = getGroupJids(normalised);
+  const groupStatuses = getAnnouncementGroupStatuses(normalised);
+
+  return {
+    target: normalised,
+    label: TARGET_LABELS[normalised] || normalised,
+    groupCount: jids.length,
+    groupStatuses,
+  };
 }
 
 /**
@@ -146,6 +189,8 @@ async function logAnnouncement(target, message, adminId) {
 
 module.exports = {
   getGroupJids,
+  getAnnouncementGroupStatuses,
+  getAnnouncementTargetSummary,
   sendAnnouncement,
   logAnnouncement,
   buildAnnouncementText

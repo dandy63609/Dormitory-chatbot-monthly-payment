@@ -6,6 +6,25 @@ const path = require('path');
 const axios = require('axios');
 const bot = require('../lib/telegramClient');
 const { Markup } = require('telegraf');
+const martinosPaymentVerificationService = require('../services/martinosPaymentVerificationService');
+
+let getMartinosWaSocket = () => null;
+
+function setMartinosWaSocketGetter(fn) {
+    getMartinosWaSocket = typeof fn === 'function' ? fn : () => null;
+}
+
+const MARTINOS_TELEGRAM_ADMIN_INFO = `Halo Bu, ini Martinos Kos Assistant versi admin testing.
+
+Telegram ini sementara dipakai untuk menerima bukti pembayaran listrik dari penghuni dan melakukan verifikasi.
+
+Untuk ke depannya, admin dan penghuni sama-sama akan menggunakan WhatsApp. Jadi Telegram ini hanya alat bantu testing sementara nggih, Bu.
+
+Kalau ada bukti pembayaran masuk, Bu bisa pilih:
+✅ Terima pembayaran
+❌ Tolak pembayaran
+
+Matur nuwun, Bu.`;
 const { askAiDetailed } = require('../lib/aiClient');
 const handleFinanceCommand = require('../commands/finance/index');
 const { handleAdminCommand } = require('../commands/admin/index');
@@ -852,22 +871,11 @@ async function sendHistoryPageMessage(ctx, userId, page = 1, useEdit = false) {
 async function processMenuCommand(ctx, command, userId) {
     switch (command) {
         case '/start': {
-            const welcomeHeader = '<b>SELAMAT DATANG DI FUENZER BOT</b> 🤖';
-            const welcomeBody = `Halo <b>${escapeHtml(ctx.from.first_name || 'Pengguna')}</b>! Saya asisten virtual pribadi.\n\nGunakan tombol di bawah untuk akses cepat fitur keuangan.`;
-            await ctx.reply(`${welcomeHeader}\n\n${welcomeBody}`, {
-                parse_mode: 'HTML',
-                ...buildMainMenuKeyboard()
-            });
+            await ctx.reply(MARTINOS_TELEGRAM_ADMIN_INFO);
             return;
         }
         case '/info': {
-            const header = '<b>INFORMASI FUENZER BOT</b> 🤖';
-            const body = `Saya adalah asisten virtual pribadi milik <b>Ridwan Yoga Suryantara</b>.\n\n<b>DUKUNGAN BOT</b> ☕\n• /donate : Link dukungan + QR donasi\n\n<b>FITUR KEUANGAN</b> 💰\n• /finance_info : Panduan Lengkap command keuangan\n\n<b>FITUR SISTEM</b> ⚙️\n• /ping : Cek status bot\n• /info : Menampilkan pesan ini\n• /start : Memulai bot\n\n<b>FITUR AI</b> 🧠\nKirim pesan biasa (tanpa awalan /) untuk ngobrol, tanya coding, atau diskusi teknologi.\n• /model_info : Daftar model AI yang tersedia\n• /switch : Ganti model AI aktif\n\n<b>FITUR UTILITAS</b> 🛠️\n• /short : Pendekkan URL dengan is.gd\n• /research_info : Panduan Lengkap Referensi (buku/jurnal/artikel)\n• /downloader : Panduan Lengkap download (/download & /audio)\n• /cuaca : Info cuaca hari ini\n• /sholat : Jadwal sholat hari ini\n• /me : Tentang pembuat bot\n\n<b>FITUR CONVERTER</b> 🖼️\n• /img_info : Panduan Lengkap image tools\n• /pdf_info : Panduan Lengkap PDF tools\n\n<b>FITUR STICKER</b> 🧩\n• /sticker_info : Panduan Lengkap sticker tools\n\n<b>FITUR ADMIN</b> 🛡️\n• /admin : Menu command admin`;
-            const message = `${header}\n\n${body}`;
-            await ctx.reply(message, {
-                parse_mode: 'HTML',
-                ...buildMainMenuKeyboard()
-            });
+            await ctx.reply(MARTINOS_TELEGRAM_ADMIN_INFO);
             return;
         }
         case '/research_info': {
@@ -1660,13 +1668,13 @@ function setupTelegramBot() {
                 } else if (message.includes('401 Unauthorized') || message.includes('403 Forbidden')) {
                     errorHeader = '<b>AKSES AI DITOLAK</b> 🔒';
                     errorBody = 'Maaf, akses AI ditolak (401/403).\nAdmin perlu memeriksa API key AI.';
-                } else if (message.includes('tidak ditemukan di OpenRouter') || message.includes('tidak ditemukan di Mistral')) {
+                } else if (message.includes('tidak ditemukan di OpenRouter')) {
                     errorHeader = '<b>MODEL AI TIDAK DITEMUKAN</b> 🔍';
                     errorBody = 'Maaf, model AI yang dipakai sedang tidak tersedia.\nCoba lagi nanti.';
-                } else if (message.includes('API key OpenRouter') || message.includes('API key Mistral') || message.includes('AI_PROVIDER tidak valid')) {
+                } else if (message.includes('API key OpenRouter')) {
                     errorHeader = '<b>API KEY AI TIDAK VALID</b> 🔑';
                     errorBody = 'Maaf, konfigurasi AI belum lengkap atau tidak valid.\nAdmin telah diberitahu.';
-                } else if (message.includes('Server OpenRouter sedang gangguan') || message.includes('Server Mistral sedang gangguan')) {
+                } else if (message.includes('Server OpenRouter sedang gangguan')) {
                     errorHeader = '<b>SERVER AI GANGGUAN</b> 🛠️';
                     errorBody = 'Maaf, server AI sedang gangguan.\nSilakan coba lagi nanti.';
                 } else {
@@ -1685,6 +1693,30 @@ function setupTelegramBot() {
         const userId = ctx.from.id.toString();
 
         try {
+            if (data.startsWith('martinos_accept:')) {
+                const code = data.slice('martinos_accept:'.length);
+                await ctx.answerCbQuery();
+                const result = await martinosPaymentVerificationService.approveMartinosProofFromTelegram(
+                    code,
+                    ctx.from.id,
+                    getMartinosWaSocket,
+                );
+                await ctx.reply(result.adminReply);
+                return;
+            }
+
+            if (data.startsWith('martinos_reject:')) {
+                const code = data.slice('martinos_reject:'.length);
+                await ctx.answerCbQuery();
+                const result = await martinosPaymentVerificationService.rejectMartinosProofFromTelegram(
+                    code,
+                    ctx.from.id,
+                    getMartinosWaSocket,
+                );
+                await ctx.reply(result.adminReply);
+                return;
+            }
+
             if (data.startsWith('cmd:')) {
                 const key = data.split(':')[1];
                 const commandMap = {
@@ -1828,8 +1860,8 @@ function setupTelegramBot() {
     // Error handling
     bot.catch((err, ctx) => {
         console.error(`Telegram Bot Error for ${ctx.updateType}:`, err);
-        ctx.reply('<b>ERROR SISTEM</b> ❌\chn\nTerjadi kesalahan internal. Silakan coba lagi nanti.', { parse_mode: 'HTML' });
+        ctx.reply('<b>ERROR SISTEM</b> ❌\n\nTerjadi kesalahan internal. Silakan coba lagi nanti.', { parse_mode: 'HTML' });
     });
 }
 
-module.exports = { setupTelegramBot };
+module.exports = { setupTelegramBot, setMartinosWaSocketGetter };

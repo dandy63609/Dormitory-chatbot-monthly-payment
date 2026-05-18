@@ -41,8 +41,12 @@ function isAdmin(userId, platform) {
   }
 
   if (platformName === 'telegram') {
-    const adminIds = parseCommaSeparatedList(process.env.ADMIN_TELE_IDS)
-      .map((adminId) => normalizeTelegramUserId(adminId));
+    let adminIds = parseCommaSeparatedList(process.env.ADMIN_TELE_IDS)
+      .map((adminId) => normalizeTelegramUserId(adminId))
+      .filter(Boolean);
+    if (adminIds.length === 0 && process.env.TELEGRAM_ADMIN_CHAT_ID) {
+      adminIds = [normalizeTelegramUserId(process.env.TELEGRAM_ADMIN_CHAT_ID)].filter(Boolean);
+    }
     const normalizedUserId = normalizeTelegramUserId(userId);
     return adminIds.includes(normalizedUserId);
   }

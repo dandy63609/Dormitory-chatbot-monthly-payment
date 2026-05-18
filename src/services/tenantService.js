@@ -1,8 +1,8 @@
 const supabase = require('../lib/supabaseClient');
-const { isAdmin } = require('../utils/auth');
 
 const KAMAR_TABLE = 'kamar';
 const OCCUPIED_STATUS = 'Terisi';
+const warnedRoleConflicts = new Set();
 
 /**
  * Normalizes a WhatsApp JID or Indonesian phone number to a canonical
@@ -34,6 +34,49 @@ function normalizePhone(rawUserId) {
   }
 
   return digits;
+}
+
+function parseAdminNumbers() {
+  return String(process.env.ADMIN_WA_NUMBERS || '')
+    .split(/[\s,;|]+/)
+    .map((item) => normalizePhone(item))
+    .filter(Boolean);
+}
+
+function isAdminPhone(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return false;
+  return parseAdminNumbers().includes(normalized);
+}
+
+function isDevelopment() {
+  return String(process.env.NODE_ENV || '').toLowerCase() === 'development';
+}
+
+function isDualRoleTestModeEnabled() {
+  return process.env.MARTINOS_TEST_DUAL_ROLE === 'true';
+}
+
+function logRoleDebug({ rawJid, normalizedNumber, adminFound, tenantFound, role }) {
+  if (!isDevelopment()) return;
+
+  console.log(
+    [
+      'Martinos role debug:',
+      `raw=${rawJid || '-'}`,
+      `normalized=${normalizedNumber || '-'}`,
+      `isAdmin=${Boolean(adminFound)}`,
+      `tenantFound=${Boolean(tenantFound)}`,
+      `role=${role || 'unknown'}`,
+    ].join(' '),
+  );
+}
+
+function warnRoleConflictOnce(normalizedNumber) {
+  const key = normalizedNumber || 'unknown';
+  if (warnedRoleConflicts.has(key)) return;
+  warnedRoleConflicts.add(key);
+  console.warn('Role conflict: number exists as admin and tenant. Using admin role.');
 }
 
 function mapKamarToTenant(row) {
@@ -117,21 +160,59 @@ async function getTenantByWhatsAppNumber(phone) {
  * @param {string} userId - WhatsApp JID of the message sender.
  * @returns {Promise<{ role: 'admin'|'tenant'|'unknown', tenant: Object|null }>}
  */
-async function resolveRole(userId) {
+async function resolveRole(userId, options = {}) {
+  const normalizedNumber = normalizePhone(userId);
+  const rawJid = options.rawJid || userId;
+
   try {
-    if (isAdmin(userId, 'whatsapp')) {
-      return { role: 'admin', tenant: null };
+    const adminFound = isAdminPhone(normalizedNumber);
+    const tenant = await getTenantByWhatsAppNumber(normalizedNumber);
+    const tenantFound = Boolean(tenant);
+    const roleConflict = adminFound && tenantFound;
+
+    let role = 'unknown';
+    if (adminFound) role = 'admin';
+    else if (tenantFound) role = 'tenant';
+
+    if (roleConflict) {
+      warnRoleConflictOnce(normalizedNumber);
     }
 
-    const tenant = await getTenantByWhatsAppNumber(userId);
-    if (tenant) {
-      return { role: 'tenant', tenant };
-    }
+    logRoleDebug({
+      rawJid,
+      normalizedNumber,
+      adminFound,
+      tenantFound,
+      role,
+    });
 
-    return { role: 'unknown', tenant: null };
+    return {
+      role,
+      tenant: tenantFound ? tenant : null,
+      normalizedNumber,
+      isAdmin: adminFound,
+      tenantFound,
+      roleConflict,
+      dualRoleTestMode: isDualRoleTestModeEnabled(),
+    };
   } catch (err) {
     console.error('Unexpected error in resolveRole:', err);
-    return { role: 'unknown', tenant: null };
+    logRoleDebug({
+      rawJid,
+      normalizedNumber,
+      adminFound: isAdminPhone(normalizedNumber),
+      tenantFound: false,
+      role: 'unknown',
+    });
+    return {
+      role: 'unknown',
+      tenant: null,
+      normalizedNumber,
+      isAdmin: isAdminPhone(normalizedNumber),
+      tenantFound: false,
+      roleConflict: false,
+      dualRoleTestMode: isDualRoleTestModeEnabled(),
+    };
   }
 }
 
@@ -139,4 +220,5 @@ module.exports = {
   resolveRole,
   getTenantByWhatsAppNumber,
   normalizePhone,
+  isAdminPhone,
 };

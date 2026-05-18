@@ -2,14 +2,20 @@
 
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const electricityService = require('../../services/electricityService');
+const martinosPaymentVerificationService = require('../../services/martinosPaymentVerificationService');
+const {
+  sendAnnouncement,
+  logAnnouncement,
+  getAnnouncementTargetSummary,
+} = require('../../services/martinosAnnouncementService');
+const { normalizePhone } = require('../../services/tenantService');
 
 const DEFAULT_ELECTRICITY_NOMINAL = 55000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
-const PENDING_PROOF_TTL_MS = 24 * 60 * 60 * 1000;
 
 const pendingAdminMarkPaid = {};
 const pendingTenantPayments = {};
-const pendingProofVerifications = {};
+const pendingAnnouncements = {};
 
 function setPending(map, key, value, ttlMs = PENDING_TTL_MS) {
   if (map[key]?.timeout) {
@@ -19,6 +25,10 @@ function setPending(map, key, value, ttlMs = PENDING_TTL_MS) {
   const timeout = setTimeout(() => {
     delete map[key];
   }, ttlMs);
+
+  if (typeof timeout.unref === 'function') {
+    timeout.unref();
+  }
 
   map[key] = { ...value, timeout };
 }
@@ -92,10 +102,7 @@ function getTenantBuildingLabel(tenant) {
 }
 
 function normalizeWhatsAppNumber(value) {
-  return String(value || '')
-    .split('@')[0]
-    .split(':')[0]
-    .replace(/[^\d]/g, '');
+  return normalizePhone(value);
 }
 
 function toWhatsAppJid(value) {
@@ -107,17 +114,11 @@ function toWhatsAppJid(value) {
   return normalized ? `${normalized}@s.whatsapp.net` : '';
 }
 
-function normalizeProofCode(value) {
-  const raw = String(value || '').trim().toUpperCase();
-  if (!raw) return '';
-  return raw.startsWith('BUKTI-') ? raw : `BUKTI-${raw}`;
-}
-
 function generateProofCode() {
   for (let i = 0; i < 10; i += 1) {
     const suffix = String(Math.floor(1000 + Math.random() * 9000));
     const code = `BUKTI-${suffix}`;
-    if (!pendingProofVerifications[code]) return code;
+    if (!martinosPaymentVerificationService.isProofCodeInUse(code)) return code;
   }
 
   return `BUKTI-${Date.now().toString().slice(-4)}`;
@@ -159,6 +160,54 @@ function formatBillStatus(bill) {
   return `Status: *${status}*${method}${paidAt}`;
 }
 
+function formatBillPeriod(bill) {
+  return electricityService.getPeriodLabel(bill?.bulan, bill?.tahun);
+}
+
+function getPendingAdminAction(userId) {
+  if (pendingAnnouncements[userId]) {
+    return {
+      type: 'announcement',
+      label: 'pengumuman',
+      confirmText: 'KIRIM PENGUMUMAN',
+      cancelText: 'BATAL PENGUMUMAN',
+    };
+  }
+
+  if (pendingAdminMarkPaid[userId]) {
+    return {
+      type: 'mark_paid',
+      label: 'konfirmasi pembayaran listrik',
+      confirmText: 'YA BAYAR',
+      cancelText: 'BATAL BAYAR',
+    };
+  }
+
+  return null;
+}
+
+function buildPendingAdminBlockReply(pendingAction) {
+  return fmt([
+    `Sekedap Bu, wonten *${pendingAction.label}* sing dereng rampung.`,
+    `Tulung rampungke rumiyin nganggo *${pendingAction.confirmText}* utawa batalke nganggo *${pendingAction.cancelText}*.`,
+    'Sakwise rampung, panjenengan saged nganggo fitur liyane maneh nggih.',
+  ]);
+}
+
+function formatAnnouncementGroupStatuses(targetSummary) {
+  const statuses = targetSummary.groupStatuses || [];
+  if (statuses.length === 0) {
+    return [];
+  }
+
+  return [
+    '*Status grup:*',
+    ...statuses.map((group) => (
+      `- ${group.label}: ${group.configured ? 'siap' : 'belum disetel'}`
+    )),
+  ];
+}
+
 function getElectricityPaymentStatusLabel(bill) {
   if (String(bill?.status_bayar || '').trim().toLowerCase() === 'lunas') {
     return 'Sampun lunas';
@@ -169,17 +218,22 @@ function getElectricityPaymentStatusLabel(bill) {
 
 function buildKosInfoMenu() {
   return fmt([
-    '> *Halo, Bu* 🏠',
+    '> *Halo, Bu* Ã°Å¸ÂÂ ',
     '',
     'Panjenengan terdaftar sebagai admin Martinos Kos.',
     'Aku iso bantu cek listrik lan ngirim pengumuman.',
     '',
     '*Menu Admin:*',
     '- /listrik <bulan> <tahun> : Cek ringkasan pembayaran listrik',
+    '- /sudah_listrik <bulan> <tahun> : Daftar penghuni sing sampun bayar',
+    '- /belum_listrik <bulan> <tahun> : Daftar penghuni sing dereng bayar',
     '- /umumkan <target> <pesan> : Kirim pengumuman ke grup kos',
+    '- /lunas_listrik <kamar> <bulan> <tahun> <cash|transfer> : Catat manual nek perlu',
     '',
     '*Contoh:*',
     '/listrik mei 2026',
+    '/sudah_listrik mei 2026',
+    '/belum_listrik mei 2026',
     '/umumkan semua Besok air mati jam 10 pagi',
     '',
     'Catatan:',
@@ -189,12 +243,14 @@ function buildKosInfoMenu() {
     '/terima_bukti <kode>',
     'atau',
     '/tolak_bukti <kode> <alasan>',
+    '',
+    'Gunakake /lunas_listrik namung kanggo catatan manual nek memang perlu, Bu.',
   ]);
 }
 
 function buildTenantInfoMenu(tenant) {
   return fmt([
-    `> *Sugeng rawuh, ${getTenantMasName(tenant)}!* 🏠`,
+    `> *Sugeng rawuh, ${getTenantMasName(tenant)}!* Ã°Å¸ÂÂ `,
     '',
     `Panjenengan terdaftar sebagai penghuni *${getTenantBuildingLabel(tenant)}*.`,
     `Kamar panjenengan: *${getTenantRoomCode(tenant)}*.`,
@@ -235,6 +291,106 @@ async function handleListrik(args) {
   ]);
 }
 
+async function handleUmumkan(args, userId, sock) {
+  void sock;
+  const target = String(args[0] || '').trim().toLowerCase();
+  const message = args.slice(1).join(' ').trim();
+
+  if (!target || !message) {
+    return 'Format: `/umumkan <semua|martinos1|martinos2|martinos3> <pesan>`\nContoh: `/umumkan semua Besok air mati jam 10 pagi`';
+  }
+
+  const targetSummary = getAnnouncementTargetSummary(target);
+  setPending(pendingAnnouncements, userId, { target, message, targetSummary });
+
+  return fmt([
+    '> *Konfirmasi Pengumuman Martinos Kos*',
+    '',
+    `Target: *${targetSummary.label}*`,
+    ...formatAnnouncementGroupStatuses(targetSummary),
+    `Jumlah grup sing bakal dikirim: *${targetSummary.groupCount}*`,
+    '',
+    '*Isi pengumuman:*',
+    message,
+    '',
+    'Ketik *KIRIM PENGUMUMAN* untuk mengirim.',
+    'Ketik *BATAL PENGUMUMAN* untuk membatalkan.',
+  ]);
+}
+
+async function handleAnnouncementConfirmation(userId, sock) {
+  const pending = pendingAnnouncements[userId];
+  if (!pending) return null;
+
+  const { target, message } = pending;
+  const targetSummary = pending.targetSummary || getAnnouncementTargetSummary(target);
+
+  try {
+    const result = await sendAnnouncement(sock, target, message);
+    clearPending(pendingAnnouncements, userId);
+
+    logAnnouncement(target, message, userId).catch((error) => {
+      console.warn('Gagal mencatat pengumuman Martinos:', error?.message || error);
+    });
+
+    return fmt([
+      '> *Pengumuman terkirim*',
+      '',
+      `Target: *${targetSummary.label}*`,
+      `Berhasil: *${result.successCount}/${result.totalCount}* grup`,
+    ]);
+  } catch (error) {
+    clearPending(pendingAnnouncements, userId);
+    return `Gagal mengirim pengumuman: ${error.message}`;
+  }
+}
+
+function handleAnnouncementCancel(userId) {
+  const pending = pendingAnnouncements[userId];
+  if (!pending) return null;
+
+  clearPending(pendingAnnouncements, userId);
+  return 'Pengumuman dibatalkan.';
+}
+
+function handleAdminMarkPaidCancel(userId) {
+  const pending = pendingAdminMarkPaid[userId];
+  if (!pending) return null;
+
+  clearPending(pendingAdminMarkPaid, userId);
+  return 'Konfirmasi pembayaran dibatalkan, Bu.';
+}
+
+async function handleAdminPendingText(text, userId, role, tenant, sock) {
+  const normalized = String(text || '').trim().replace(/^\/+/, '').toUpperCase();
+
+  if (role === 'admin') {
+    const pendingAction = getPendingAdminAction(userId);
+
+    if (pendingAction?.type === 'announcement' && normalized === 'KIRIM PENGUMUMAN') {
+      return handleAnnouncementConfirmation(userId, sock);
+    }
+
+    if (pendingAction?.type === 'announcement' && normalized === 'BATAL PENGUMUMAN') {
+      return handleAnnouncementCancel(userId);
+    }
+
+    if (pendingAction?.type === 'mark_paid' && normalized === 'YA BAYAR') {
+      return handleAdminMarkPaidConfirmation(userId);
+    }
+
+    if (pendingAction?.type === 'mark_paid' && normalized === 'BATAL BAYAR') {
+      return handleAdminMarkPaidCancel(userId);
+    }
+
+    if (pendingAction) {
+      return buildPendingAdminBlockReply(pendingAction);
+    }
+  }
+
+  return handleTextReply(text, userId, role, tenant);
+}
+
 async function handleBelumListrik(args) {
   const [bulan, tahun] = args;
   if (!bulan || !tahun) {
@@ -259,22 +415,81 @@ async function handleBelumListrik(args) {
   ]);
 }
 
-function handleLunasListrik(args, userId) {
+async function handleSudahListrik(args) {
+  const [bulan, tahun] = args;
+  if (!bulan || !tahun) {
+    return 'Format: `/sudah_listrik <bulan> <tahun>`\nContoh: `/sudah_listrik mei 2025`';
+  }
+
+  const result = await electricityService.getPaidTenants(bulan, tahun);
+  if (result.tenants.length === 0) {
+    return `> *SUDAH BAYAR LISTRIK ${result.periodLabel.toUpperCase()}*\n\nDereng wonten tagihan sing tercatat lunas.`;
+  }
+
+  const lines = result.tenants.map((tenant, index) => {
+    const method = tenant.paymentMethod ? ` - ${tenant.paymentMethod}` : '';
+    const paidAt = tenant.paidAt ? ` (${formatDate(tenant.paidAt)})` : '';
+    return `${index + 1}. *${tenant.nomor_kamar || tenant.roomCode || '-'}* - ${tenant.nama_penyewa || tenant.tenantName || '-'} (${tenant.gedung?.nama || tenant.buildingName || '-'})${method}${paidAt}`;
+  });
+
+  return fmt([
+    `> *SUDAH BAYAR LISTRIK ${result.periodLabel.toUpperCase()}*`,
+    '',
+    `Total: *${result.tenants.length}* tagihan sampun lunas.`,
+    '',
+    ...lines,
+  ]);
+}
+
+async function handleLunasListrik(args, userId) {
   const [roomCode, bulan, tahun, method] = args;
   if (!roomCode || !bulan || !tahun || !method) {
     return 'Format: `/lunas_listrik <room_code> <bulan> <tahun> <method>`\nContoh: `/lunas_listrik M1-1303 mei 2025 cash`';
   }
 
-  setPending(pendingAdminMarkPaid, userId, { roomCode, bulan, tahun, method });
+  const roomLookup = await electricityService.getRoomByCode(roomCode);
+  const month = electricityService.parseMonth(bulan);
+  const year = electricityService.parseYear(tahun);
+  const periodLabel = electricityService.getPeriodLabel(month, year);
+  const bill = await electricityService.getCurrentTenantBill(roomLookup.room.id, month, year);
+  const dbMethodLabel = electricityService.formatMetodeBayarForAdminDisplay(method);
+
+  if (bill && electricityService.isPaid(bill.status_bayar)) {
+    return fmt([
+      '> *Tagihan sudah lunas*',
+      '',
+      `Kamar: *${roomLookup.roomCode}*`,
+      `Penghuni: *${roomLookup.tenantName}*`,
+      `Gedung: *${roomLookup.buildingName}*`,
+      `Periode: *${periodLabel}*`,
+      '',
+      'Ora perlu ditandai lunas maneh, Bu.',
+    ]);
+  }
+
+  setPending(pendingAdminMarkPaid, userId, {
+    roomCode: roomLookup.roomCode,
+    bulan,
+    tahun,
+    method: dbMethodLabel,
+    tenantName: roomLookup.tenantName,
+    buildingName: roomLookup.buildingName,
+    periodLabel,
+    createsMissingBill: !bill,
+  });
 
   return fmt([
     '> *Konfirmasi Pembayaran Listrik*',
     '',
-    `Kamar: *${roomCode}*`,
-    `Periode: *${bulan} ${tahun}*`,
-    `Metode: *${method.toUpperCase()}*`,
+    `Kamar: *${roomLookup.roomCode}*`,
+    `Penghuni: *${roomLookup.tenantName}*`,
+    `Gedung: *${roomLookup.buildingName}*`,
+    `Periode: *${periodLabel}*`,
+    `Metode: *${dbMethodLabel}*`,
+    !bill ? 'Catatan: tagihan periode iki durung ana, bot bakal nggawe catatan lunas anyar nek Bu konfirmasi.' : null,
     '',
     'Ketik *YA BAYAR* untuk menandai tagihan ini lunas.',
+    'Ketik *BATAL BAYAR* untuk membatalkan.',
   ]);
 }
 
@@ -294,12 +509,28 @@ async function handleAdminMarkPaidConfirmation(userId) {
 
     clearPending(pendingAdminMarkPaid, userId);
 
+    if (result.alreadyPaid) {
+      return fmt([
+        '> *Tagihan sudah lunas*',
+        '',
+        `Kamar: *${roomCode}*`,
+        pending.tenantName ? `Penghuni: *${pending.tenantName}*` : null,
+        pending.buildingName ? `Gedung: *${pending.buildingName}*` : null,
+        `Periode: *${result.periodLabel || `${bulan} ${tahun}`}*`,
+        '',
+        'Ora tak ubah maneh nggih Bu, soale tagihan pun sampun lunas.',
+      ]);
+    }
+
     return fmt([
       '> *Pembayaran listrik berhasil dicatat lunas*',
       '',
       `Kamar: *${roomCode}*`,
+      pending.tenantName ? `Penghuni: *${pending.tenantName}*` : null,
+      pending.buildingName ? `Gedung: *${pending.buildingName}*` : null,
       `Periode: *${result.periodLabel || `${bulan} ${tahun}`}*`,
-      `Metode: *${String(method).toUpperCase()}*`,
+      `Metode: *${result.method || method}*`,
+      result.created ? 'Catatan: tagihan durung ana, mula bot nggawe baris tagihan lunas anyar.' : null,
     ]);
   } catch (error) {
     clearPending(pendingAdminMarkPaid, userId);
@@ -344,23 +575,46 @@ async function handleBayarListrik(userId, tenant) {
   }
 
   const { bulan, tahun } = getCurrentPeriod();
-  const bill = await electricityService.getOrCreateCurrentTenantBill(kamarId, bulan, tahun);
+  const oldestUnpaidBill = await electricityService.getOldestUnpaidTenantBill(kamarId);
+  const bill = oldestUnpaidBill || await electricityService.getOrCreateCurrentTenantBill(kamarId, bulan, tahun);
+  const isPreviousUnpaid = oldestUnpaidBill
+    ? electricityService.isBeforePeriod(oldestUnpaidBill, bulan, tahun)
+    : false;
+  const billPeriodLabel = formatBillPeriod(bill);
+
+  if (String(bill?.status_bayar || '').trim().toLowerCase() === 'lunas') {
+    return fmt([
+      `> *BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
+      '',
+      `Nggih ${getTenantMasName(tenant)}.`,
+      `Kamar: *${getTenantRoomCode(tenant)}*`,
+      `Gedung: *${getTenantBuildingLabel(tenant)}*`,
+      `Total tagihan: *${formatRupiah(getNominal())}*`,
+      formatBillStatus(bill),
+      '',
+      'Panjenengan sampun mbayar listrik bulan iki nggih.',
+      'Ora perlu kirim bukti maneh.',
+    ]);
+  }
 
   setPending(pendingTenantPayments, userId, {
     tenant,
     kamarId,
     billId: bill.id,
-    bulan,
-    tahun,
+    bulan: electricityService.getMonthName(bill.bulan),
+    tahun: bill.tahun,
     method: null,
   });
 
   return fmt([
-    `> *BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
+    `> *BAYAR LISTRIK ${String(electricityService.getMonthName(bill.bulan)).toUpperCase()} ${bill.tahun}*`,
     '',
     `Nggih ${getTenantMasName(tenant)}`,
     `Kamar: ${getTenantRoomCode(tenant)}`,
     `Gedung: ${getTenantBuildingLabel(tenant)}`,
+    isPreviousUnpaid
+      ? `Panjenengan taksih kagungan tagihan listrik bulan sebelumnya: *${billPeriodLabel}*. Dilunasi rumiyin nggih.`
+      : null,
     `Total tagihan: ${formatRupiah(getNominal())}`,
     `Status: ${getElectricityPaymentStatusLabel(bill)}`,
     '',
@@ -371,7 +625,11 @@ async function handleBayarListrik(userId, tenant) {
 }
 
 function buildStartPaymentFirstReply(tenant) {
-  return `Mas ${getTenantName(tenant)}, nek badhe bayar listrik mulai saking /bayar_listrik rumiyin nggih.`;
+  return fmt([
+    `Mas ${getTenantName(tenant)}, sesi pembayaran dereng aktif utawi sampun kedaluwarsa.`,
+    'Nek badhe kirim bukti, mulai malih saking */bayar_listrik* rumiyin nggih.',
+    'Sakwise kuwi pilih */cash* utawa */transfer*, lajeng kirim bukti pembayaran.',
+  ]);
 }
 
 function handleCashChoice(userId, tenant) {
@@ -430,102 +688,96 @@ function buildAdminProofCaption(code, pending) {
     `Kamar: *${getTenantRoomCode(pending.tenant)}*`,
     `Gedung: *${getTenantBuildingLabel(pending.tenant)}*`,
     `Periode: *${pending.bulan} ${pending.tahun}*`,
-    `Metode: *${String(pending.method).toUpperCase()}*`,
+    `Metode: *${electricityService.formatMetodeBayarForAdminDisplay(pending.method)}*`,
     `Nominal: *${formatRupiah(getNominal())}*`,
     '',
     'Balas:',
     `/terima_bukti ${code}`,
     'atau',
     `/tolak_bukti ${code} <alasan>`,
+    '',
+    'Catetan Bu: kode bukti aktif 24 jam. Menawi langkung saking niku dereng diproses, penghuni kedah kirim ulang bukti nggih.',
   ]);
 }
 
-async function notifyTenant(sock, tenantJid, text) {
-  if (!sock || !tenantJid || !text) return false;
-
-  try {
-    await sock.sendMessage(tenantJid, { text });
-    return true;
-  } catch (error) {
-    console.error('Gagal mengirim notifikasi Martinos ke penghuni:', error);
-    return false;
-  }
-}
-
 async function handleTerimaBukti(args, sock) {
-  const code = normalizeProofCode(args[0]);
+  const code = martinosPaymentVerificationService.normalizeProofCode(args[0]);
   if (!code || !args[0]) {
     return 'Format: `/terima_bukti <kode>`\nContoh: `/terima_bukti BUKTI-1234`';
   }
 
-  const pending = pendingProofVerifications[code];
-  if (!pending) {
-    return `Kode bukti *${code}* tidak ditemukan atau sudah kedaluwarsa.`;
+  const result = await martinosPaymentVerificationService.approveMartinosProofWithSocket(code, sock);
+
+  if (!result.ok) {
+    if (result.reason === 'not_found') {
+      return fmt([
+        `Kode bukti *${code}* ora ketemu utawi sampun kedaluwarsa.`,
+        'Kode bukti aktif 24 jam. Bisa ugi bot/VM sempat restart dadi kode ilang.',
+        'Monggo cek kode nang pesan bukti, utawi minta penghuni kirim ulang bukti nggih, Bu.',
+      ]);
+    }
+    if (result.reason === 'already_paid') {
+      const pending = result.pending || {};
+      return fmt([
+        '> *Tagihan sudah lunas*',
+        '',
+        `Kode: *${result.normalized || code}*`,
+        `Kamar: *${getTenantRoomCode(pending.tenant)}*`,
+        `Penghuni: *${getTenantMasName(pending.tenant)}*`,
+        `Periode: *${pending.bulan || '-'} ${pending.tahun || ''}*`.trim(),
+        '',
+        'Bukti lama iki ora tak proses maneh, Bu, soale tagihane sampun lunas.',
+      ]);
+    }
+    return `Gagal menerima bukti ${code}: ${result.message || 'database error'}`;
   }
 
-  try {
-    const updated = await electricityService.markElectricityPaidByTagihanId(
-      pending.billId,
-      pending.method,
-    );
+  const { pending, updated, tenantNotified } = result;
 
-    clearPending(pendingProofVerifications, code);
-
-    const tenantReply = fmt([
-      `Nggih ${getTenantMasName(pending.tenant)}, pembayaran listrik sampun diverifikasi.`,
-      'Matur nuwun nggih.',
-    ]);
-    const notified = await notifyTenant(sock, pending.tenantJid, tenantReply);
-
-    return fmt([
-      '> *Bukti pembayaran diterima*',
-      '',
-      `Kode: *${code}*`,
-      `Kamar: *${getTenantRoomCode(pending.tenant)}*`,
-      `Penghuni: *${getTenantMasName(pending.tenant)}*`,
-      `Periode: *${pending.bulan} ${pending.tahun}*`,
-      `Metode: *${String(updated.metode_bayar || pending.method).toUpperCase()}*`,
-      notified ? 'Penghuni wis dikabari.' : 'Status sudah lunas, tapi notifikasi penghuni gagal dikirim.',
-    ]);
-  } catch (error) {
-    return `Gagal menerima bukti ${code}: ${error.message}`;
-  }
+  return fmt([
+    '> *Bukti pembayaran diterima*',
+    '',
+    `Kode: *${result.normalized}*`,
+    `Kamar: *${getTenantRoomCode(pending.tenant)}*`,
+    `Penghuni: *${getTenantMasName(pending.tenant)}*`,
+    `Periode: *${pending.bulan} ${pending.tahun}*`,
+    `Metode: *${updated.metode_bayar || pending.metodeBayar}*`,
+    tenantNotified
+      ? 'Penghuni wis dikabari.'
+      : 'Status sampun lunas, nanging bot gagal ngabarin penghuni sawise dicoba ulang. Bu, tulung kabari penghuni manual nggih.',
+  ]);
 }
 
 async function handleTolakBukti(args, sock) {
-  const code = normalizeProofCode(args[0]);
+  const code = martinosPaymentVerificationService.normalizeProofCode(args[0]);
   const reason = args.slice(1).join(' ').trim();
 
   if (!code || !args[0] || !reason) {
     return 'Format: `/tolak_bukti <kode> <alasan>`\nContoh: `/tolak_bukti BUKTI-1234 nominal belum sesuai`';
   }
 
-  const pending = pendingProofVerifications[code];
-  if (!pending) {
-    return `Kode bukti *${code}* tidak ditemukan atau sudah kedaluwarsa.`;
+  const result = await martinosPaymentVerificationService.rejectMartinosProofWithSocket(code, sock, {
+    reason,
+  });
+
+  if (!result.ok) {
+    return fmt([
+      `Kode bukti *${code}* ora ketemu utawi sampun kedaluwarsa.`,
+      'Kode bukti aktif 24 jam. Bisa ugi bot/VM sempat restart dadi kode ilang.',
+      'Monggo cek kode nang pesan bukti, utawi minta penghuni kirim ulang bukti nggih, Bu.',
+    ]);
   }
 
-  clearPending(pendingProofVerifications, code);
-
-  const tenantReply = fmt([
-    '> *Bukti pembayaran perlu dicek maneh*',
-    '',
-    `Nggih, ${getTenantMasName(pending.tenant)}.`,
-    `Bukti pembayaran listrik periode *${pending.bulan} ${pending.tahun}* durung iso diterima.`,
-    `Alasan: *${reason}*`,
-    '',
-    'Tulung kirim ulang lewat */bayar_listrik* ya.',
-  ]);
-  const notified = await notifyTenant(sock, pending.tenantJid, tenantReply);
+  const { pending, tenantNotified } = result;
 
   return fmt([
     '> *Bukti pembayaran ditolak*',
     '',
-    `Kode: *${code}*`,
+    `Kode: *${result.normalized}*`,
     `Kamar: *${getTenantRoomCode(pending.tenant)}*`,
     `Penghuni: *${getTenantMasName(pending.tenant)}*`,
     `Alasan: *${reason}*`,
-    notified ? 'Penghuni wis dikabari.' : 'Bukti ditolak, tapi notifikasi penghuni gagal dikirim.',
+    tenantNotified ? 'Penghuni wis dikabari.' : 'Bukti ditolak, tapi notifikasi penghuni gagal dikirim.',
   ]);
 }
 
@@ -560,6 +812,19 @@ async function handleKosCommand(command, args, userId, role, tenant, sock, msg) 
         } catch (error) {
           return `Gagal mengambil ringkasan listrik: ${error.message}`;
         }
+      case '/sudah_listrik':
+      case '/sudah-listrik':
+        try {
+          return await handleSudahListrik(args);
+        } catch (error) {
+          return `Gagal mengambil daftar sudah bayar: ${error.message}`;
+        }
+      case '/umumkan':
+        try {
+          return await handleUmumkan(args, userId, sock);
+        } catch (error) {
+          return `Gagal mengirim pengumuman: ${error.message}`;
+        }
       case '/belum_listrik':
         try {
           return await handleBelumListrik(args);
@@ -567,7 +832,11 @@ async function handleKosCommand(command, args, userId, role, tenant, sock, msg) 
           return `Gagal mengambil daftar belum bayar: ${error.message}`;
         }
       case '/lunas_listrik':
-        return handleLunasListrik(args, userId);
+        try {
+          return await handleLunasListrik(args, userId);
+        } catch (error) {
+          return `Gagal menyiapkan konfirmasi pembayaran: ${error.message}`;
+        }
       case '/terima_bukti':
         return handleTerimaBukti(args, sock);
       case '/tolak_bukti':
@@ -596,6 +865,9 @@ async function handleKosCommand(command, args, userId, role, tenant, sock, msg) 
         }
       case '/kos_info':
       case '/listrik':
+      case '/sudah_listrik':
+      case '/sudah-listrik':
+      case '/umumkan':
       case '/belum_listrik':
       case '/lunas_listrik':
       case '/terima_bukti':
@@ -610,8 +882,7 @@ async function handleKosCommand(command, args, userId, role, tenant, sock, msg) 
 }
 
 async function handlePendingConfirmation(cleanText, userId, role, tenant, sock) {
-  void sock;
-  return handleTextReply(cleanText, userId, role, tenant);
+  return handleAdminPendingText(cleanText, userId, role, tenant, sock);
 }
 
 async function handleProofUpload(msg, userId, tenant, sock) {
@@ -668,7 +939,25 @@ async function handleProofUpload(msg, userId, tenant, sock) {
     code,
   };
 
-  setPending(pendingProofVerifications, code, verification, PENDING_PROOF_TTL_MS);
+  const tenantForLog = tenant || pending.tenant;
+  console.log('[Martinos] Payment proof received', {
+    code,
+    tagihanId: pending.billId,
+    roomCode: getTenantRoomCode(tenantForLog),
+    methodInput: pending.method,
+  });
+
+  martinosPaymentVerificationService.registerMartinosProofVerification(code, {
+    tenantName: getTenantName(tenantForLog),
+    tenantWhatsappJid: tenantChatJid,
+    roomCode: getTenantRoomCode(tenantForLog),
+    tagihanId: pending.billId,
+    metodeBayar: pending.method,
+    createdAt: Date.now(),
+    tenant: tenantForLog,
+    bulan: pending.bulan,
+    tahun: pending.tahun,
+  });
 
   const caption = buildAdminProofCaption(code, verification);
   const adminMessage = media.kind === 'image'
@@ -687,7 +976,7 @@ async function handleProofUpload(msg, userId, tenant, sock) {
   try {
     await sock.sendMessage(adminJid, adminMessage);
   } catch (error) {
-    clearPending(pendingProofVerifications, code);
+    martinosPaymentVerificationService.clearMartinosProofVerification(code);
     console.error('Gagal meneruskan bukti pembayaran Martinos ke admin:', error);
     await sock.sendMessage(replyJid, {
       text: `Ngapunten, ${getTenantMasName(tenant || pending.tenant)}. Bukti pembayaran belum bisa diteruske ke admin. Coba maneh beberapa saat ya.`,
@@ -711,4 +1000,5 @@ module.exports = {
   handleKosCommand,
   handleProofUpload,
   handlePendingConfirmation,
+  buildAdminProofCaption,
 };
