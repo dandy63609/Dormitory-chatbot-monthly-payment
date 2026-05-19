@@ -2,8 +2,6 @@
 
 ## Project context
 
-This repo is being adapted from the original Fuenzer bot into Martinos Kos Assistant.
-
 Martinos Kos Assistant is a kos management bot focused on electricity payment and admin-tenant communication.
 
 MVP only supports:
@@ -14,9 +12,9 @@ Do not add outsider, public, visitor, or calon-penghuni flows unless explicitly 
 
 ## Main product direction
 
-Prioritize Martinos Kos behavior over old Fuenzer behavior.
+Prioritize Martinos Kos behavior.
 
-Do not expose old Fuenzer branding, creator profile, donation menu, finance tools, downloader tools, image tools, PDF tools, sticker tools, or unrelated AI utility menus unless explicitly requested.
+Do not expose creator profile, donation menu, finance tools, downloader tools, image tools, PDF tools, sticker tools, model-switching menus, token/RPM usage, or unrelated AI utility menus unless explicitly requested.
 
 User-facing bot messages should use polite Indonesian with light Semarang/Javanese-style phrasing.
 
@@ -36,26 +34,13 @@ Use WhatsApp for:
 - Monitoring alerts
 - Group announcements
 
-Do not start, launch, or reconnect Telegram in production.
+Do not start, launch, or reconnect any non-WhatsApp chat platform in production.
 
-Do not forward payment proofs to Telegram.
-
-Do not send monitor alerts to Telegram.
-
-Do not add Telegram admin verification, tenant support, or announcement flows unless explicitly requested.
-
-Existing Telegram files and Telegraf dependency are legacy cleanup targets only:
-- `src/handlers/teleHandler.js`
-- `src/lib/telegramClient.js`
-- `telegraf` in `package.json` / `package-lock.json`
-
-Removing the legacy Telegram subsystem is a separate cleanup task. Before removing it, check that no shared utility still depends on Telegram-specific code. Do not re-enable Telegram as a shortcut.
+Do not forward payment proofs, monitor alerts, tenant support, or announcement flows to any non-WhatsApp channel unless explicitly requested.
 
 ## Current source of truth
 
 Use this file and `tasks/todo.md` as the project direction source of truth.
-
-The README files may still describe the old Fuenzer WhatsApp + Telegram bot and should not override Martinos rules.
 
 If README, package metadata, or old code conflicts with this file, follow this file and update the stale artifact only when the task asks for documentation or cleanup.
 
@@ -65,11 +50,9 @@ Keep responsibilities separated.
 
 Client files should only handle platform connection/client setup:
 - `src/lib/waClient.js`
-- `src/lib/telegramClient.js` is legacy only; do not wire it into production startup.
 
 Handler files should handle incoming platform events/messages:
 - `src/handlers/waHandler.js`
-- `src/handlers/teleHandler.js` is legacy only; do not wire it into production startup.
 
 Command router files should route commands:
 - `src/commands/**`
@@ -100,7 +83,6 @@ Do not read, print, edit, summarize, or expose:
 - WhatsApp session files
 - Supabase service role key
 - OpenRouter API key
-- Telegram bot token
 - WhatsApp credentials
 - private admin IDs
 - private phone numbers
@@ -132,7 +114,6 @@ Always ask before:
 - changing Supabase schema
 - marking electricity bills as paid
 - sending WhatsApp messages
-- sending Telegram messages to real users/admins
 - sending broadcasts
 - deleting files/folders
 - running migrations
@@ -149,7 +130,7 @@ Do not rewrite large files unless necessary.
 
 Do not remove existing working flows unless explicitly requested.
 
-If old Fuenzer code is unrelated to the task, avoid touching it unless it affects Martinos behavior.
+If unrelated old utility code appears again, avoid wiring it into Martinos behavior unless explicitly requested.
 
 After editing JavaScript files, run syntax checks when possible:
 

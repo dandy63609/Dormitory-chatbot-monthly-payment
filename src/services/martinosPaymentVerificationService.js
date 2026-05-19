@@ -1,7 +1,6 @@
 'use strict';
 
 const electricityService = require('./electricityService');
-const { isAdmin } = require('../utils/auth');
 
 const PENDING_PROOF_TTL_MS = 24 * 60 * 60 * 1000;
 const TENANT_NOTIFY_RETRY_DELAY_MS = 250;
@@ -140,7 +139,7 @@ function buildTenantRejectMessage(reason) {
 }
 
 /**
- * Shared approve path (WhatsApp admin command + Telegram callback).
+ * Shared approve path for WhatsApp admin commands.
  * @param {string} code
  * @param {object | null} sock
  * @returns {Promise<{ ok: true, normalized: string, pending: object, updated: object, tenantNotified: boolean } | { ok: false, reason: 'not_found'|'db_error'|'already_paid', message?: string, pending?: object, existingBill?: object, normalized?: string }>}
@@ -227,7 +226,7 @@ async function approveMartinosProofWithSocket(code, sock) {
 }
 
 /**
- * Shared reject path (WhatsApp admin command + Telegram callback).
+ * Shared reject path for WhatsApp admin commands.
  * Does not update tagihan_listrik paid status.
  * @param {string} code
  * @param {object | null} sock
@@ -266,70 +265,6 @@ async function rejectMartinosProofWithSocket(code, sock, options = {}) {
   return { ok: true, normalized, pending, tenantNotified };
 }
 
-/** Approve payment from Telegram inline button. */
-async function approveMartinosProofFromTelegram(code, adminTelegramUserId, getWaSocket) {
-  if (!isAdmin(String(adminTelegramUserId), 'telegram')) {
-    return {
-      ok: false,
-      adminReply:
-        'Ngapunten Bu, panjenengan boten kadhah akses kangge verifikasi pembayaran iki.',
-    };
-  }
-
-  const normalized = normalizeProofCode(code);
-  const sock = typeof getWaSocket === 'function' ? getWaSocket() : null;
-  const result = await approveMartinosProofWithSocket(code, sock);
-
-  if (!result.ok) {
-    if (result.reason === 'not_found') {
-      return {
-        ok: false,
-        adminReply: `Ngapunten Bu, kode ${normalized} dereng ketemu utawi sampun kedaluwarsa.`,
-      };
-    }
-    return {
-      ok: false,
-      adminReply: `Ngapunten Bu, gagal nyimpen ing database: ${result.message || ''}`,
-    };
-  }
-
-  const tenantName = result.pending.tenantName || '-';
-  const roomCode = result.pending.roomCode || '-';
-  const adminReply = `Sip Bu, pembayaran listrik atas nama ${tenantName} kamar ${roomCode} sampun tak catat lunas. Tak kabari penghunine nggih.`;
-
-  return { ok: true, adminReply };
-}
-
-/**
- * Reject payment from Telegram inline button.
- */
-async function rejectMartinosProofFromTelegram(code, adminTelegramUserId, getWaSocket) {
-  if (!isAdmin(String(adminTelegramUserId), 'telegram')) {
-    return {
-      ok: false,
-      adminReply:
-        'Ngapunten Bu, panjenengan boten kadhah akses kangge verifikasi pembayaran iki.',
-    };
-  }
-
-  const normalized = normalizeProofCode(code);
-  const sock = typeof getWaSocket === 'function' ? getWaSocket() : null;
-  const result = await rejectMartinosProofWithSocket(code, sock, {});
-
-  if (!result.ok) {
-    return {
-      ok: false,
-      adminReply: `Ngapunten Bu, kode ${normalized} dereng ketemu utawi sampun kedaluwarsa.`,
-    };
-  }
-
-  const tenantName = result.pending.tenantName || '-';
-  const roomCode = result.pending.roomCode || '-';
-  const adminReply = `Nggih Bu, bukti pembayaran atas nama ${tenantName} kamar ${roomCode} tak tandai dereng diterima.`;
-
-  return { ok: true, adminReply };
-}
-
 module.exports = {
   PENDING_PROOF_TTL_MS,
   TENANT_NOTIFY_RETRY_DELAY_MS,
@@ -340,6 +275,4 @@ module.exports = {
   clearMartinosProofVerification,
   approveMartinosProofWithSocket,
   rejectMartinosProofWithSocket,
-  approveMartinosProofFromTelegram,
-  rejectMartinosProofFromTelegram,
 };

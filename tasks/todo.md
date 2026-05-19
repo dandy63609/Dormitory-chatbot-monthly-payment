@@ -59,9 +59,9 @@ Admin commands:
 Tenant commands:
 - `/bayar_listrik`
 - `/status_bayar_info`
-Deprecated old Fuenzer commands:
+Deprecated old utility commands:
 - Reply with Martinos deprecation message
-- Do not physically delete old services yet
+- Old utility files are being removed in the Martinos-only cleanup
 ## 4. Tenant Payment Flow
 `/bayar_listrik`:
 1. Detect current month/year.
@@ -149,11 +149,10 @@ Edit:
 - `.env.example`
 Create/update:
 - `src/commands/kos/index.js`
-- `src/services/kosService.js`
 - `src/services/tenantService.js`
 - `src/services/electricityService.js`
 - `src/services/martinosAnnouncementService.js`
-Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `.env`
+Do not touch: `auth/`, `src/lib/waClient.js`, `node_modules/`, `.env`
 ## 9. Implementation Checklist
 - [x] White-label `/start` and `/info`
 - [x] Add `/kos_info` admin menu
@@ -191,10 +190,14 @@ Do not touch: `auth/`, `src/lib/waClient.js`, `package.json`, `node_modules/`, `
 - [ ] Admin `/umumkan semua test` â†’ asks confirmation
 - [ ] Admin `KIRIM PENGUMUMAN` â†’ sent to groups
 ## 11. Post-MVP Cleanup
-Do this only after the WhatsApp manual checklist passes:
-- [ ] Remove legacy Telegram production code after checking shared utilities
-- [ ] Remove `src/handlers/teleHandler.js` if no shared code depends on it
-- [ ] Remove `src/lib/telegramClient.js` if no shared code depends on it
-- [ ] Remove Telegram-only branches from shared services/utilities when safe
-- [ ] Remove `telegraf` from `package.json` and `package-lock.json`
-- [ ] Update README files so they describe Martinos WhatsApp-only production use
+Martinos-only cleanup:
+- [x] Keep WhatsApp-only production startup
+- [x] Remove old utility routing from WhatsApp handler
+- [x] Hide AI provider/model/token/RPM from WhatsApp users
+- [x] Rewrite README files for Martinos WhatsApp-only production use
+- [x] Remove non-WhatsApp admin auth branch from shared auth utility
+- [x] Rename monitor labels away from old product/person labels
+- [x] Delete legacy non-WhatsApp chat files after approval
+- [x] Delete unused utility command/service files after approval
+- [x] Remove unused npm dependencies from `package.json` and `package-lock.json`
+- [x] Run `npm.cmd run verify`

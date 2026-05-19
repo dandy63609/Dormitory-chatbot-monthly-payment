@@ -17,25 +17,6 @@ const settings = {
     phoneNumber: process.env.WA_PHONE_NUMBER,
   },
 
-  telegram: {
-    botToken: process.env.TELEGRAM_BOT_TOKEN,
-    sessionDir:
-      process.env.TELEGRAM_SESSION_DIR ||
-      path.join(__dirname, "../../auth/telegram"),
-  },
-
-  google: {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    redirectUri: process.env.GOOGLE_REDIRECT_URI,
-    apiKey: process.env.GOOGLE_API_KEY,
-    tokenPath: path.join(__dirname, "../../credentials/google-token.json"),
-    serviceAccountPath: path.join(
-      __dirname,
-      "../../credentials/service-account.json",
-    ),
-  },
-
   openrouter: {
     apiKey: process.env.OPENROUTER_API_KEY,
   },
@@ -45,14 +26,6 @@ const settings = {
     anonKey: process.env.SUPABASE_PUBLISHABLE_KEY,
   },
 
-  finance: {
-    apiKey: process.env.FINANCE_API_KEY,
-  },
-
-  weather: {
-    apiKey: process.env.WEATHER_API_KEY,
-  },
-
   monitor: {
     url: process.env.MONITOR_URL,
     interval: parseInt(process.env.MONITOR_INTERVAL) || 300000,
@@ -60,8 +33,6 @@ const settings = {
 
   paths: {
     temp: path.join(__dirname, "../../temp"),
-    downloads: path.join(__dirname, "../../temp/downloads"),
-    credentials: path.join(__dirname, "../../credentials"),
   },
 };
 

@@ -26,10 +26,6 @@ function normalizeWhatsAppUserId(userId) {
     .replace(/[^\d]/g, '');
 }
 
-function normalizeTelegramUserId(userId) {
-  return stripWrappingQuotes(userId).replace(/[^\d-]/g, '');
-}
-
 function isAdmin(userId, platform) {
   const platformName = String(platform || '').toLowerCase();
 
@@ -38,17 +34,6 @@ function isAdmin(userId, platform) {
       .map((adminNumber) => normalizeWhatsAppUserId(adminNumber));
     const normalizedUserId = normalizeWhatsAppUserId(userId);
     return adminNumbers.includes(normalizedUserId);
-  }
-
-  if (platformName === 'telegram') {
-    let adminIds = parseCommaSeparatedList(process.env.ADMIN_TELE_IDS)
-      .map((adminId) => normalizeTelegramUserId(adminId))
-      .filter(Boolean);
-    if (adminIds.length === 0 && process.env.TELEGRAM_ADMIN_CHAT_ID) {
-      adminIds = [normalizeTelegramUserId(process.env.TELEGRAM_ADMIN_CHAT_ID)].filter(Boolean);
-    }
-    const normalizedUserId = normalizeTelegramUserId(userId);
-    return adminIds.includes(normalizedUserId);
   }
 
   return false;

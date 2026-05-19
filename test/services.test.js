@@ -6,7 +6,6 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 
 const { normalizePhone } = require('../src/services/tenantService');
 const electricityService = require('../src/services/electricityService');
-const weatherService = require('../src/services/weatherService');
 
 test('normalizePhone returns canonical Indonesian WhatsApp numbers', () => {
   assert.equal(normalizePhone('08123456789'), '628123456789');
@@ -44,22 +43,4 @@ test('tagihan_listrik metode_bayar maps to Supabase CHECK values', () => {
     () => electricityService.normalizeTagihanMetodeBayarForDb('crypto'),
     /Metode bayar tidak dikenali/,
   );
-});
-
-test('weather service reports missing API key without network access', async () => {
-  const previousOpenWeatherKey = process.env.OPENWEATHER_API_KEY;
-  const previousWeatherKey = process.env.WEATHER_API_KEY;
-  delete process.env.OPENWEATHER_API_KEY;
-  delete process.env.WEATHER_API_KEY;
-
-  try {
-    const result = await weatherService.getCuaca('Jakarta');
-    assert.match(result, /API key OpenWeather tidak ditemukan/);
-  } finally {
-    if (previousOpenWeatherKey === undefined) delete process.env.OPENWEATHER_API_KEY;
-    else process.env.OPENWEATHER_API_KEY = previousOpenWeatherKey;
-
-    if (previousWeatherKey === undefined) delete process.env.WEATHER_API_KEY;
-    else process.env.WEATHER_API_KEY = previousWeatherKey;
-  }
 });

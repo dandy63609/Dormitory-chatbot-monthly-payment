@@ -1,9 +1,5 @@
 // AI client (OpenRouter via OpenAI SDK)
 const OpenAI = require("openai");
-const {
-  getActiveModel,
-  getModelById,
-} = require("../services/aiPreferenceService");
 const { logAIUsage } = require("../services/logService");
 
 // Inisialisasi OpenRouter API
@@ -25,7 +21,6 @@ const openai = new OpenAI({
 const DEFAULT_GPT_OSS_OPENROUTER_MODEL_ID = "openai/gpt-oss-120b";
 const FALLBACK_FREE_OPENROUTER_MODEL_ID =
   "meta-llama/llama-3.2-3b-instruct:free";
-const ignoredPaidPreferenceLogKeys = new Set();
 let warnedPaidDefaultFallback = false;
 
 function getConfiguredOpenRouterModelId() {
@@ -37,7 +32,6 @@ function getConfiguredOpenRouterModelId() {
 }
 
 const DEFAULT_OPENROUTER_MODEL_ID = getConfiguredOpenRouterModelId();
-const modelName = DEFAULT_OPENROUTER_MODEL_ID;
 const allowPaidOpenRouterModels =
   process.env.ALLOW_PAID_OPENROUTER_MODELS === "true";
 const RPM_LIMIT = parseInt(
@@ -66,7 +60,7 @@ AUDIENCE — You only serve two groups:
 Unregistered senders are blocked before reaching you. Do NOT ask them to register.
 
 STRICT RULES:
-- Do NOT mention Fuenzer Bot, Ridwan Yoga Suryantara, model names, token usage, CPU/RAM, downloader, converter, or any old bot features.
+- Do NOT mention old bot branding, creator profile, model names, token usage, CPU/RAM, downloader, converter, or any old bot features.
 - Mention /lunas_listrik only as an admin manual fallback for recording payment without tenant proof.
 - Never mention /listrik_saya, /status_bayar, or /upload_bukti.
 - Explain /terima_bukti and /tolak_bukti only when discussing proof verification after a tenant uploads payment proof.
@@ -289,16 +283,6 @@ function getAllowedPrimaryModelId(modelId) {
   return freeModelId;
 }
 
-function logIgnoredPaidPreferenceOnce(userId, platform, modelId) {
-  const logKey = `${platform || ""}:${userId || ""}:${modelId}`;
-  if (ignoredPaidPreferenceLogKeys.has(logKey)) return;
-
-  ignoredPaidPreferenceLogKeys.add(logKey);
-  console.warn(
-    `Saved preferred OpenRouter model ignored because it is not free: ${modelId}`,
-  );
-}
-
 async function askGeminiDetailed(message, userId, platform, logUserId) {
   let modelId = getAllowedPrimaryModelId(DEFAULT_OPENROUTER_MODEL_ID);
 
@@ -308,31 +292,6 @@ async function askGeminiDetailed(message, userId, platform, logUserId) {
       throw new Error(
         "API key OpenRouter tidak ditemukan. Periksa file .env Anda.",
       );
-    }
-
-    try {
-      const preferredModelId = await getActiveModel(userId, platform);
-      const normalizedPreferredModelId = String(preferredModelId || "").trim();
-
-      if (
-        normalizedPreferredModelId &&
-        (isFreeOpenRouterModel(normalizedPreferredModelId) ||
-          allowPaidOpenRouterModels)
-      ) {
-        modelId = normalizedPreferredModelId;
-      } else if (normalizedPreferredModelId) {
-        logIgnoredPaidPreferenceOnce(
-          userId,
-          platform,
-          normalizedPreferredModelId,
-        );
-      }
-    } catch (preferenceError) {
-      console.warn(
-        "AI preference lookup failed; using default model:",
-        preferenceError.message,
-      );
-      modelId = DEFAULT_OPENROUTER_MODEL_ID;
     }
 
     const input = coerceAiInput(message);
@@ -386,7 +345,6 @@ async function askGeminiDetailed(message, userId, platform, logUserId) {
     const finalMessageWA = formatForWhatsApp(rawText);
     const usage = extractUsageMetadata(response);
     const rpm = trackRequestAndGetRpmStatus();
-    const modelMeta = getModelById(modelId);
 
     const aiLogUserId = typeof logUserId === "string" ? logUserId : userId;
 
@@ -408,7 +366,6 @@ async function askGeminiDetailed(message, userId, platform, logUserId) {
     return {
       text: finalMessageWA,
       model: modelId,
-      modelName: modelMeta?.name || modelId,
       usage,
       rpm,
     };
@@ -444,7 +401,7 @@ async function askGeminiDetailed(message, userId, platform, logUserId) {
       lowerErrorMessage.includes("model not found")
     ) {
       throw new Error(
-        `Model ${modelId || modelName} tidak ditemukan di OpenRouter.`,
+        `Model ${modelId || DEFAULT_OPENROUTER_MODEL_ID} tidak ditemukan di OpenRouter.`,
       );
     } else if (statusCode >= 500 && statusCode <= 599) {
       throw new Error(
@@ -471,5 +428,4 @@ module.exports = {
   askGeminiDetailed,
   askAi,
   askAiDetailed,
-  modelName,
 };

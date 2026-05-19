@@ -10,7 +10,7 @@ process.env.OPENROUTER_API_KEY ||= 'test-openrouter-key';
 const electricityService = require('../src/services/electricityService');
 const martinosPaymentVerificationService = require('../src/services/martinosPaymentVerificationService');
 const { sendElectricityPaymentReminders } = require('../src/services/electricityReminderService');
-const { getTenantCommandAlias } = require('../src/handlers/waHandler');
+const { getTenantCommandAlias, __test: waHandlerTest } = require('../src/handlers/waHandler');
 const {
   handleKosCommand,
   handlePendingConfirmation,
@@ -563,6 +563,38 @@ test('fuzzy tenant aliases map to deterministic commands without AI', () => {
   assert.equal(getTenantCommandAlias('cek listrik'), '/status_bayar_info');
   assert.equal(getTenantCommandAlias('status bayar'), '/status_bayar_info');
   assert.equal(getTenantCommandAlias('cerita bebas'), '');
+});
+
+test('deprecated utility commands return Martinos-only unavailable replies', () => {
+  for (const command of [
+    '/model_info',
+    '/switch',
+    '/ai_usage',
+    '/donate',
+    '/download',
+    '/pdf',
+    '/img',
+    '/tosticker',
+    '/saldo',
+    '/cuaca',
+    '/sholat',
+  ]) {
+    const reply = waHandlerTest.getUnavailableCommandReply(command);
+    assert.match(reply, /Martinos Kos/);
+    assert.match(reply, /Fitur iki ora tersedia/);
+    assert.doesNotMatch(reply, /model|token|RPM|donasi/i);
+  }
+});
+
+test('role-aware AI prompt hides model and legacy feature details from users', () => {
+  const adminPrompt = waHandlerTest.buildRoleAwareAiPrompt('model apa?', 'admin', null);
+  assert.match(adminPrompt, /Do not mention AI model names/);
+  assert.match(adminPrompt, /old bot branding/);
+  assert.match(adminPrompt, /old chat platforms/);
+
+  const tenantPrompt = waHandlerTest.buildRoleAwareAiPrompt('aku mau download pdf', 'tenant', tenant());
+  assert.match(tenantPrompt, /Do not mention AI model names/);
+  assert.match(tenantPrompt, /\/bayar_listrik/);
 });
 
 test('stale proof approval does not update an already paid bill', async () => {
