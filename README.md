@@ -11,7 +11,7 @@ This project is WhatsApp-only for production. Old utility-bot features are not p
 - Admins receive proof notifications and can approve or reject them.
 - Admins can list paid and unpaid electricity bills by month and year.
 - Admins can send group announcements to configured Martinos WhatsApp groups.
-- The bot can answer free-chat questions as Bu Sri, the Martinos Kos assistant, without exposing AI provider, model, token, or RPM details.
+- The bot can answer free-chat questions as Ajeng, the Martinos Kos assistant, without exposing AI provider, model, token, or RPM details.
 - Server monitoring can notify the admin WhatsApp when configured URLs are down.
 
 ## WhatsApp Commands

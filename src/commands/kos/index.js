@@ -188,7 +188,7 @@ function getPendingAdminAction(userId) {
 
 function buildPendingAdminBlockReply(pendingAction) {
   return fmt([
-    `Sekedap Bu, wonten *${pendingAction.label}* sing dereng rampung.`,
+    `Sekedap Bu Umi, wonten *${pendingAction.label}* sing dereng rampung.`,
     `Tulung rampungke rumiyin nganggo *${pendingAction.confirmText}* utawa batalke nganggo *${pendingAction.cancelText}*.`,
     'Sakwise rampung, panjenengan saged nganggo fitur liyane maneh nggih.',
   ]);
@@ -218,7 +218,7 @@ function getElectricityPaymentStatusLabel(bill) {
 
 function buildKosInfoMenu() {
   return fmt([
-    '> *Halo, Bu* Ã°Å¸ÂÂ ',
+    '> *Halo, Bu Umi* Ã°Å¸ÂÂ ',
     '',
     'Panjenengan terdaftar sebagai admin Martinos Kos.',
     'Aku iso bantu cek listrik lan ngirim pengumuman.',
@@ -244,7 +244,7 @@ function buildKosInfoMenu() {
     'atau',
     '/tolak_bukti <kode> <alasan>',
     '',
-    'Gunakake /lunas_listrik namung kanggo catatan manual nek memang perlu, Bu.',
+    'Gunakake /lunas_listrik namung kanggo catatan manual nek memang perlu, Bu Umi.',
   ]);
 }
 
@@ -358,7 +358,7 @@ function handleAdminMarkPaidCancel(userId) {
   if (!pending) return null;
 
   clearPending(pendingAdminMarkPaid, userId);
-  return 'Konfirmasi pembayaran dibatalkan, Bu.';
+  return 'Konfirmasi pembayaran dibatalkan, Bu Umi.';
 }
 
 async function handleAdminPendingText(text, userId, role, tenant, sock) {
@@ -463,7 +463,7 @@ async function handleLunasListrik(args, userId) {
       `Gedung: *${roomLookup.buildingName}*`,
       `Periode: *${periodLabel}*`,
       '',
-      'Ora perlu ditandai lunas maneh, Bu.',
+      'Ora perlu ditandai lunas maneh, Bu Umi.',
     ]);
   }
 
@@ -486,7 +486,7 @@ async function handleLunasListrik(args, userId) {
     `Gedung: *${roomLookup.buildingName}*`,
     `Periode: *${periodLabel}*`,
     `Metode: *${dbMethodLabel}*`,
-    !bill ? 'Catatan: tagihan periode iki durung ana, bot bakal nggawe catatan lunas anyar nek Bu konfirmasi.' : null,
+    !bill ? 'Catatan: tagihan periode iki durung ana, bot bakal nggawe catatan lunas anyar nek Bu Umi konfirmasi.' : null,
     '',
     'Ketik *YA BAYAR* untuk menandai tagihan ini lunas.',
     'Ketik *BATAL BAYAR* untuk membatalkan.',
@@ -518,7 +518,7 @@ async function handleAdminMarkPaidConfirmation(userId) {
         pending.buildingName ? `Gedung: *${pending.buildingName}*` : null,
         `Periode: *${result.periodLabel || `${bulan} ${tahun}`}*`,
         '',
-        'Ora tak ubah maneh nggih Bu, soale tagihan pun sampun lunas.',
+        'Ora tak ubah maneh nggih Bu Umi, soale tagihan pun sampun lunas.',
       ]);
     }
 
@@ -683,7 +683,7 @@ function buildAdminProofCaption(code, pending) {
     'atau',
     `/tolak_bukti ${code} <alasan>`,
     '',
-    'Catetan Bu: kode bukti aktif 24 jam. Menawi langkung saking niku dereng diproses, penghuni kedah kirim ulang bukti nggih.',
+    'Catetan Bu Umi: kode bukti aktif 24 jam. Menawi langkung saking niku dereng diproses, penghuni kedah kirim ulang bukti nggih.',
   ]);
 }
 
@@ -700,7 +700,7 @@ async function handleTerimaBukti(args, sock) {
       return fmt([
         `Kode bukti *${code}* ora ketemu utawi sampun kedaluwarsa.`,
         'Kode bukti aktif 24 jam. Bisa ugi bot/VM sempat restart dadi kode ilang.',
-        'Monggo cek kode nang pesan bukti, utawi minta penghuni kirim ulang bukti nggih, Bu.',
+        'Monggo cek kode nang pesan bukti, utawi minta penghuni kirim ulang bukti nggih, Bu Umi.',
       ]);
     }
     if (result.reason === 'already_paid') {
@@ -713,7 +713,7 @@ async function handleTerimaBukti(args, sock) {
         `Penghuni: *${getTenantMasName(pending.tenant)}*`,
         `Periode: *${pending.bulan || '-'} ${pending.tahun || ''}*`.trim(),
         '',
-        'Bukti lama iki ora tak proses maneh, Bu, soale tagihane sampun lunas.',
+        'Bukti lama iki ora tak proses maneh, Bu Umi, soale tagihane sampun lunas.',
       ]);
     }
     return `Gagal menerima bukti ${code}: ${result.message || 'database error'}`;
@@ -751,7 +751,7 @@ async function handleTolakBukti(args, sock) {
     return fmt([
       `Kode bukti *${code}* ora ketemu utawi sampun kedaluwarsa.`,
       'Kode bukti aktif 24 jam. Bisa ugi bot/VM sempat restart dadi kode ilang.',
-      'Monggo cek kode nang pesan bukti, utawi minta penghuni kirim ulang bukti nggih, Bu.',
+      'Monggo cek kode nang pesan bukti, utawi minta penghuni kirim ulang bukti nggih, Bu Umi.',
     ]);
   }
 

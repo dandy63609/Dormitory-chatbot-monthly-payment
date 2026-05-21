@@ -75,6 +75,7 @@ function fakeSock() {
 
 test('WhatsApp admin and tenant menus are role-specific', async () => {
   const adminMenu = await handleKosCommand('/start', [], '628100000001@s.whatsapp.net', 'admin', null, fakeSock().sock, null);
+  assert.match(adminMenu, /Halo, Bu Umi/);
   assert.match(adminMenu, /Menu Admin/);
   assert.match(adminMenu, /\/listrik/);
   assert.match(adminMenu, /\/umumkan/);
@@ -592,13 +593,18 @@ test('deprecated utility commands return Martinos-only unavailable replies', () 
 
 test('role-aware AI prompt hides model and legacy feature details from users', () => {
   const adminPrompt = waHandlerTest.buildRoleAwareAiPrompt('model apa?', 'admin', null);
+  assert.match(adminPrompt, /You are Ajeng/);
+  assert.match(adminPrompt, /admin as Bu Umi/);
+  assert.match(adminPrompt, /Kula Ajeng/);
   assert.match(adminPrompt, /Do not mention AI model names/);
   assert.match(adminPrompt, /old bot branding/);
   assert.match(adminPrompt, /old chat platforms/);
 
   const tenantPrompt = waHandlerTest.buildRoleAwareAiPrompt('aku mau download pdf', 'tenant', tenant());
+  assert.match(tenantPrompt, /You are Ajeng/);
   assert.match(tenantPrompt, /Do not mention AI model names/);
   assert.match(tenantPrompt, /\/bayar_listrik/);
+  assert.doesNotMatch(`${adminPrompt}\n${tenantPrompt}`, /Bu Sri/);
 });
 
 test('stale proof approval does not update an already paid bill', async () => {

@@ -360,49 +360,30 @@ async function getPaidTenants(bulan, tahun) {
   const year = parseYear(tahun);
   const periodLabel = getPeriodLabel(month, year);
 
-  const { data, error } = await supabase
-    .from(TAGIHAN_TABLE)
-    .select(`
-      id,
-      status_bayar,
-      metode_bayar,
-      tanggal_bayar,
-      kamar:kamar_id (
-        id,
-        nomor_kamar,
-        nama_penyewa,
-        gedung:gedung_id (
-          id,
-          nama
-        )
-      )
-    `)
-    .eq('bulan', month)
-    .eq('tahun', year)
-    .eq('status_bayar', PAID_STATUS);
+  const [rooms, paidBills] = await Promise.all([
+    getOccupiedRooms(),
+    getPaidBillsForPeriod(month, year),
+  ]);
+  const paidByKamarId = keyByKamarId(paidBills);
+  const tenants = rooms
+    .filter((room) => paidByKamarId.has(String(room.id)))
+    .map((room) => {
+      const bill = paidByKamarId.get(String(room.id));
 
-  if (error) {
-    throw new Error(`Gagal mengambil daftar sudah bayar listrik: ${error.message}`);
-  }
-
-  const tenants = (data || []).map((bill) => {
-    const kamar = bill.kamar || {};
-    const gedung = kamar.gedung || {};
-
-    return {
-      tagihanId: bill.id,
-      nomor_kamar: kamar.nomor_kamar || null,
-      nama_penyewa: kamar.nama_penyewa || null,
-      gedung: {
-        nama: gedung.nama || null,
-      },
-      roomCode: kamar.nomor_kamar || null,
-      tenantName: kamar.nama_penyewa || null,
-      buildingName: gedung.nama || null,
-      paymentMethod: bill.metode_bayar || null,
-      paidAt: bill.tanggal_bayar || null,
-    };
-  });
+      return {
+        tagihanId: bill.id,
+        nomor_kamar: room.nomor_kamar,
+        nama_penyewa: room.nama_penyewa,
+        gedung: {
+          nama: room.gedung?.nama || null,
+        },
+        roomCode: room.roomCode,
+        tenantName: room.tenantName,
+        buildingName: room.buildingName,
+        paymentMethod: bill.metode_bayar || null,
+        paidAt: bill.tanggal_bayar || null,
+      };
+    });
 
   return { periodLabel, tenants };
 }

@@ -6,6 +6,13 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 
 const { normalizePhone } = require('../src/services/tenantService');
 const electricityService = require('../src/services/electricityService');
+const supabase = require('../src/lib/supabaseClient');
+
+const realSupabaseFrom = supabase.from;
+
+test.afterEach(() => {
+  supabase.from = realSupabaseFrom;
+});
 
 test('normalizePhone returns canonical Indonesian WhatsApp numbers', () => {
   assert.equal(normalizePhone('08123456789'), '628123456789');
@@ -43,4 +50,99 @@ test('tagihan_listrik metode_bayar maps to Supabase CHECK values', () => {
     () => electricityService.normalizeTagihanMetodeBayarForDb('crypto'),
     /Metode bayar tidak dikenali/,
   );
+});
+
+test('getPaidTenants only returns occupied rooms with paid electricity rows', async () => {
+  supabase.from = (table) => {
+    const query = {
+      filters: [],
+      select() {
+        return this;
+      },
+      eq(column, value) {
+        this.filters.push({ column, value });
+        return this;
+      },
+      then(resolve, reject) {
+        let result;
+
+        if (table === 'kamar') {
+          result = {
+            data: [
+              {
+                id: 1,
+                gedung_id: 10,
+                nomor_kamar: 'M1-101',
+                nama_penyewa: 'Budi',
+                hp_penyewa: '628111',
+                status_kamar: 'Terisi',
+                gedung: { id: 10, nama: 'Martinos 1' },
+              },
+              {
+                id: 2,
+                gedung_id: 10,
+                nomor_kamar: 'M1-102',
+                nama_penyewa: 'Andi',
+                hp_penyewa: '628222',
+                status_kamar: 'Terisi',
+                gedung: { id: 10, nama: 'Martinos 1' },
+              },
+            ],
+            error: null,
+          };
+        } else if (table === 'tagihan_listrik') {
+          result = {
+            data: [
+              {
+                id: 201,
+                kamar_id: 1,
+                bulan: 5,
+                tahun: 2026,
+                status_bayar: 'Lunas',
+                metode_bayar: 'Tunai',
+                tanggal_bayar: '2026-05-10',
+                kamar: {
+                  id: 1,
+                  nomor_kamar: 'M1-101',
+                  nama_penyewa: 'Budi',
+                  gedung: { id: 10, nama: 'Martinos 1' },
+                },
+              },
+              {
+                id: 202,
+                kamar_id: 99,
+                bulan: 5,
+                tahun: 2026,
+                status_bayar: 'Lunas',
+                metode_bayar: 'Transfer Bank',
+                tanggal_bayar: '2026-05-11',
+                kamar: {
+                  id: 99,
+                  nomor_kamar: 'OLD-ROOM',
+                  nama_penyewa: 'Old Tenant',
+                  gedung: { id: 10, nama: 'Martinos 1' },
+                },
+              },
+            ],
+            error: null,
+          };
+        } else {
+          result = { data: [], error: null };
+        }
+
+        return Promise.resolve(result).then(resolve, reject);
+      },
+    };
+
+    return query;
+  };
+
+  const result = await electricityService.getPaidTenants('mei', '2026');
+
+  assert.deepEqual(
+    result.tenants.map((tenant) => tenant.roomCode),
+    ['M1-101'],
+  );
+  assert.equal(result.tenants[0].paymentMethod, 'Tunai');
+  assert.equal(result.tenants[0].paidAt, '2026-05-10');
 });

@@ -202,7 +202,7 @@ function buildAdminDeterministicAiReply(message) {
     normalized.includes("sampeyan sapa") ||
     normalized.includes("jenengan sapa");
   if (asksIdentity) {
-    return "Kula Bu Sri, asisten Martinos Kos, Bu. Kula bantu urusan listrik lan pengumuman Martinos Kos.";
+    return "Kula Ajeng, asisten Martinos Kos, Bu Umi. Kula bantu urusan listrik lan pengumuman Martinos Kos.";
   }
 
   const asksLanguage =
@@ -214,7 +214,7 @@ function buildAdminDeterministicAiReply(message) {
     normalized.includes("pakai bahasa apa") ||
     normalized.includes("pake bahasa apa");
   if (asksLanguage) {
-    return "Niki bahasa Indonesia campur Jawa Semarangan ringan, Bu. Ben rasane luwih cedhak lan santai.";
+    return "Niki bahasa Indonesia campur Jawa Semarangan ringan, Bu Umi. Ben rasane luwih cedhak lan santai.";
   }
 
   const saysThanks =
@@ -223,7 +223,7 @@ function buildAdminDeterministicAiReply(message) {
     normalized.includes("makasih") ||
     normalized.includes("thanks");
   if (saysThanks) {
-    return "Nggih Bu, sami-sami.";
+    return "Nggih Bu Umi, sami-sami.";
   }
 
   return null;
@@ -279,7 +279,7 @@ function buildRoleClaimReply(message, role, tenant) {
     normalized.includes("aku ibu kos");
 
   if (role === "admin" && claimsTenant) {
-    return "Nggih Bu, sistem maca nomor iki sebagai admin Martinos Kos.";
+    return "Nggih Bu Umi, sistem maca nomor iki sebagai admin Martinos Kos.";
   }
 
   if (role === "tenant" && claimsAdmin) {
@@ -324,7 +324,7 @@ function buildTenantGreetingReply(tenant) {
 
 function buildAdminGreetingReply(isDualRoleTest = false) {
   const lines = [
-    "Nggih Bu, panjenengan admin Martinos Kos. Aku bantu cek listrik lan ngirim pengumuman kos.",
+    "Nggih Bu Umi, panjenengan admin Martinos Kos. Aku bantu cek listrik lan ngirim pengumuman kos.",
     "Ketik /kos_info kanggo lihat menu admin.",
   ];
 
@@ -342,13 +342,13 @@ function buildRoleAwareAiPrompt(message, role, tenant) {
     return [
       "[Martinos role context]",
       "RESOLVED_ROLE_FROM_CODE: admin",
-      "You are Bu Sri, WhatsApp assistant for Martinos Kos.",
-      "Always address admin as Bu.",
+      "You are Ajeng, WhatsApp assistant for Martinos Kos.",
+      "Always address admin as Bu Umi.",
       "Use short, natural Indonesian mixed with light Semarang/Javanese phrasing.",
       "Do not mention AI model names, providers, token usage, RPM, internal settings, old bot branding, old chat platforms, downloader, converter, PDF, sticker, finance, donation, creator profile, weather, or sholat features.",
       "Only mention Martinos commands when helpful: /listrik, /sudah_listrik, /belum_listrik, /umumkan, /terima_bukti, /tolak_bukti, /lunas_listrik.",
       "Mention /lunas_listrik only as manual fallback when admin asks how to record payment without tenant proof.",
-      "If asked identity, answer exactly: Kula Bu Sri, asisten Martinos Kos, Bu. Kula bantu urusan listrik lan pengumuman Martinos Kos.",
+      "If asked identity, answer exactly: Kula Ajeng, asisten Martinos Kos, Bu Umi. Kula bantu urusan listrik lan pengumuman Martinos Kos.",
       "",
       "[User message]",
       userMessage,
@@ -365,7 +365,7 @@ function buildRoleAwareAiPrompt(message, role, tenant) {
     `TENANT_NAME: ${tenantName}`,
     `ROOM_CODE: ${roomCode}`,
     `BUILDING_NAME: ${buildingName}`,
-    "You are Bu Sri, WhatsApp assistant for Martinos Kos.",
+    "You are Ajeng, WhatsApp assistant for Martinos Kos.",
     "Always address this tenant as Mas plus his name.",
     "Use short, natural Indonesian mixed with light Semarang/Javanese phrasing.",
     "Do not mention AI model names, providers, token usage, RPM, internal settings, old bot branding, old chat platforms, downloader, converter, PDF, sticker, finance, donation, creator profile, weather, or sholat features.",
@@ -602,7 +602,7 @@ class WhatsAppHandler {
           remoteJid,
           {
             text:
-              "Ngapunten, Bu Sri lagi gangguan sebentar. Monggo coba maneh, utawa pakai command menu Martinos nggih.",
+              "Ngapunten, Ajeng lagi gangguan sebentar. Monggo coba maneh, utawa pakai command menu Martinos nggih.",
           },
           { quoted: msg },
         );

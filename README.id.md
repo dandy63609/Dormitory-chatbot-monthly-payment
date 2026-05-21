@@ -11,7 +11,7 @@ Produksi hanya memakai WhatsApp. Fitur lama seperti downloader, finance pribadi,
 - Admin menerima bukti bayar dan bisa menerima atau menolak.
 - Admin bisa melihat daftar sudah bayar dan belum bayar per bulan.
 - Admin bisa mengirim pengumuman ke grup WhatsApp Martinos yang sudah dikonfigurasi.
-- Chat bebas tetap ada sebagai Bu Sri, asisten Martinos Kos, tanpa menampilkan nama model AI, provider, token, atau RPM.
+- Chat bebas tetap ada sebagai Ajeng, asisten Martinos Kos, tanpa menampilkan nama model AI, provider, token, atau RPM.
 - Monitor server bisa mengirim peringatan ke WhatsApp admin kalau URL yang dipantau sedang down.
 
 ## Command Penghuni
