@@ -18,7 +18,6 @@ const {
 } = require('../src/commands/kos');
 
 const realService = {
-  getOrCreateCurrentTenantBill: electricityService.getOrCreateCurrentTenantBill,
   getCurrentTenantBill: electricityService.getCurrentTenantBill,
   getOldestUnpaidTenantBill: electricityService.getOldestUnpaidTenantBill,
   getElectricitySummary: electricityService.getElectricitySummary,
@@ -29,6 +28,7 @@ const realService = {
   getElectricityBillByRoomCode: electricityService.getElectricityBillByRoomCode,
   getBillById: electricityService.getBillById,
   markElectricityPaidByTagihanId: electricityService.markElectricityPaidByTagihanId,
+  markElectricityPaidByKamarId: electricityService.markElectricityPaidByKamarId,
   markElectricityPaidByRoomCode: electricityService.markElectricityPaidByRoomCode,
 };
 
@@ -127,13 +127,7 @@ test('WhatsApp tenant transfer flow shows configured bank details after /bayar_l
   process.env.MARTINOS_BANK_ACCOUNT = '1234567890';
   process.env.MARTINOS_BANK_ACCOUNT_NAME = 'Ibu Kos';
 
-  electricityService.getOrCreateCurrentTenantBill = async () => ({
-    id: 'bill-101',
-    bulan: 5,
-    tahun: 2026,
-    status_bayar: 'belum_bayar',
-  });
-  electricityService.getOldestUnpaidTenantBill = async () => null;
+  electricityService.getCurrentTenantBill = async () => null;
 
   const userId = '628100000004@s.whatsapp.net';
   const startReply = await handleKosCommand(
@@ -163,7 +157,7 @@ test('WhatsApp tenant transfer flow shows configured bank details after /bayar_l
 
 
 test('WhatsApp tenant already paid current month does not get new payment choices', async () => {
-  electricityService.getOrCreateCurrentTenantBill = async () => ({
+  electricityService.getCurrentTenantBill = async () => ({
     id: 'bill-paid-101',
     bulan: 5,
     tahun: 2026,
@@ -171,8 +165,6 @@ test('WhatsApp tenant already paid current month does not get new payment choice
     metode_bayar: 'Transfer Bank',
     tanggal_bayar: '2026-05-18',
   });
-  electricityService.getOldestUnpaidTenantBill = async () => null;
-
   const userId = '628100000008@s.whatsapp.net';
   const reply = await handleKosCommand(
     '/bayar_listrik',
@@ -201,23 +193,8 @@ test('WhatsApp tenant already paid current month does not get new payment choice
   assert.match(followUp, /\/bayar_listrik/);
 });
 
-test('WhatsApp tenant with older unpaid bill sees oldest unpaid bill first', async () => {
-  let createCalls = 0;
-  electricityService.getOldestUnpaidTenantBill = async () => ({
-    id: 'bill-april-101',
-    bulan: 4,
-    tahun: 2026,
-    status_bayar: 'Belum Bayar',
-  });
-  electricityService.getOrCreateCurrentTenantBill = async () => {
-    createCalls += 1;
-    return {
-      id: 'bill-may-101',
-      bulan: 5,
-      tahun: 2026,
-      status_bayar: 'Belum Bayar',
-    };
-  };
+test('WhatsApp tenant starts current month payment without creating an unpaid row', async () => {
+  electricityService.getCurrentTenantBill = async () => null;
 
   const reply = await handleKosCommand(
     '/bayar_listrik',
@@ -229,15 +206,15 @@ test('WhatsApp tenant with older unpaid bill sees oldest unpaid bill first', asy
     null,
   );
 
-  assert.match(reply, /APRIL 2026/);
-  assert.match(reply, /bulan sebelumnya/);
-  assert.equal(createCalls, 0);
+  assert.match(reply, /MEI 2026/);
+  assert.match(reply, /Belum bayar|Telat bayar/);
+  assert.match(reply, /\/cash/);
+  assert.match(reply, /\/transfer/);
 });
 
-test('WhatsApp tenant with no old unpaid bill sees current month bill', async () => {
-  electricityService.getOldestUnpaidTenantBill = async () => null;
-  electricityService.getOrCreateCurrentTenantBill = async () => ({
-    id: 'bill-may-101',
+test('WhatsApp tenant with an old Belum Bayar row still sees current month unpaid status', async () => {
+  electricityService.getCurrentTenantBill = async () => ({
+    id: 'bill-may-old-unpaid-row',
     bulan: 5,
     tahun: 2026,
     status_bayar: 'Belum Bayar',
@@ -254,7 +231,7 @@ test('WhatsApp tenant with no old unpaid bill sees current month bill', async ()
   );
 
   assert.match(reply, /MEI 2026/);
-  assert.doesNotMatch(reply, /bulan sebelumnya/);
+  assert.match(reply, /Belum bayar|Telat bayar/);
 });
 test('WhatsApp proof image before payment method is rejected without forwarding to admin', async () => {
   const { sock, sent } = fakeSock();
@@ -442,6 +419,39 @@ test('WhatsApp admin sudah_listrik lists paid tenants and supports dash alias', 
   assert.match(dashReply, /SUDAH BAYAR LISTRIK MEI 2026/);
 });
 
+test('WhatsApp admin listrik summary uses occupied rooms minus paid rows', async () => {
+  electricityService.getElectricitySummary = async () => ({
+    periodLabel: 'Mei 2026',
+    amountPerPerson: 55000,
+    buildings: [
+      {
+        name: 'Martinos 1',
+        paid: 5,
+        unpaid: 7,
+        total: 12,
+      },
+    ],
+    totalTenants: 12,
+    totalPaid: 5,
+    totalUnpaid: 7,
+  });
+
+  const reply = await handleKosCommand(
+    '/listrik',
+    ['mei', '2026'],
+    '628100000015@s.whatsapp.net',
+    'admin',
+    null,
+    fakeSock().sock,
+    null,
+  );
+
+  assert.match(reply, /Total tagihan: \*12\*/);
+  assert.match(reply, /Lunas: \*5\*/);
+  assert.match(reply, /Belum lunas: \*7\*/);
+  assert.match(reply, /Martinos 1\*: 5 lunas, 7 belum \(12 total\)/);
+});
+
 test('WhatsApp admin manual mark-paid can create missing paid bill after confirmation', async () => {
   electricityService.getRoomByCode = async (roomCode) => ({
     room: { id: 'room-101' },
@@ -478,12 +488,7 @@ test('WhatsApp admin manual mark-paid can create missing paid bill after confirm
   assert.match(result, /tagihan durung ana/);
 });
 
-test('10th-day reminder sends only existing unpaid rows and does not create bills', async () => {
-  let createCalls = 0;
-  electricityService.getOrCreateCurrentTenantBill = async () => {
-    createCalls += 1;
-    return {};
-  };
+test('10th-day reminder sends occupied tenants without paid rows and does not create bills', async () => {
   electricityService.getExistingUnpaidTenantsForPeriod = async (bulan, tahun) => ({
     periodLabel: `${electricityService.getMonthName(bulan)} ${tahun}`,
     tenants: [
@@ -510,7 +515,6 @@ test('10th-day reminder sends only existing unpaid rows and does not create bill
   assert.equal(result.totalCount, 2);
   assert.equal(result.sentCount, 1);
   assert.equal(result.skippedCount, 1);
-  assert.equal(createCalls, 0);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].jid, '628123456789@s.whatsapp.net');
   assert.match(sent[0].content.text, /Mei 2026/);

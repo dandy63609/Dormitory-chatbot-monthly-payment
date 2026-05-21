@@ -4,6 +4,7 @@ const TAGIHAN_TABLE = 'tagihan_listrik';
 const KAMAR_TABLE = 'kamar';
 const PAID_STATUS = 'Lunas';
 const UNPAID_STATUS = 'Belum Bayar';
+const OCCUPIED_STATUS = 'Terisi';
 
 /** Values allowed by DB CHECK on tagihan_listrik.metode_bayar */
 const METODE_DB_TUNAI = 'Tunai';
@@ -153,6 +154,71 @@ function buildPaidUpdate(method) {
   };
 }
 
+function mapRoom(row) {
+  const gedung = row?.gedung || {};
+  return {
+    id: row?.id || null,
+    nomor_kamar: row?.nomor_kamar || null,
+    nama_penyewa: row?.nama_penyewa || null,
+    hp_penyewa: row?.hp_penyewa || null,
+    gedung: {
+      id: gedung.id || row?.gedung_id || null,
+      nama: gedung.nama || null,
+    },
+    roomCode: row?.nomor_kamar || null,
+    tenantName: row?.nama_penyewa || null,
+    tenantPhone: row?.hp_penyewa || null,
+    buildingName: gedung.nama || null,
+  };
+}
+
+async function getOccupiedRooms() {
+  const { data, error } = await supabase
+    .from(KAMAR_TABLE)
+    .select(`
+      id,
+      gedung_id,
+      nomor_kamar,
+      nama_penyewa,
+      hp_penyewa,
+      status_kamar,
+      gedung:gedung_id (
+        id,
+        nama
+      )
+    `)
+    .eq('status_kamar', OCCUPIED_STATUS);
+
+  if (error) {
+    throw new Error(`Gagal mengambil data penghuni aktif: ${error.message}`);
+  }
+
+  return (data || []).map(mapRoom);
+}
+
+async function getPaidBillsForPeriod(month, year) {
+  const { data, error } = await supabase
+    .from(TAGIHAN_TABLE)
+    .select('id, kamar_id, bulan, tahun, status_bayar, metode_bayar, tanggal_bayar')
+    .eq('bulan', month)
+    .eq('tahun', year)
+    .eq('status_bayar', PAID_STATUS);
+
+  if (error) {
+    throw new Error(`Gagal mengambil pembayaran listrik lunas: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+function keyByKamarId(rows) {
+  const map = new Map();
+  for (const row of rows || []) {
+    if (row?.kamar_id) map.set(String(row.kamar_id), row);
+  }
+  return map;
+}
+
 async function getCurrentTenantBill(kamarId, bulan, tahun) {
   if (!kamarId) {
     throw new Error('Kamar ID wajib diisi.');
@@ -218,82 +284,29 @@ async function getOldestUnpaidTenantBill(kamarId) {
   return data || null;
 }
 
-async function getOrCreateCurrentTenantBill(kamarId, bulan, tahun) {
-  if (!kamarId) {
-    throw new Error('Kamar ID wajib diisi.');
-  }
-
-  const month = parseMonth(bulan);
-  const year = parseYear(tahun);
-  const existingBill = await getCurrentTenantBill(kamarId, month, year);
-
-  if (existingBill) {
-    return existingBill;
-  }
-
-  const { data, error } = await supabase
-    .from(TAGIHAN_TABLE)
-    .insert({
-      kamar_id: kamarId,
-      bulan: month,
-      tahun: year,
-      status_bayar: UNPAID_STATUS,
-      metode_bayar: null,
-      tanggal_bayar: null,
-    })
-    .select('id, kamar_id, bulan, tahun, status_bayar, metode_bayar, tanggal_bayar')
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Gagal membuat tagihan listrik penghuni: ${error.message}`);
-  }
-
-  if (!data) {
-    throw new Error('Tagihan listrik penghuni gagal dibuat.');
-  }
-
-  return data;
-}
-
 async function getElectricitySummary(bulan, tahun) {
   const month = parseMonth(bulan);
   const year = parseYear(tahun);
   const periodLabel = getPeriodLabel(month, year);
 
-  const { data, error } = await supabase
-    .from(TAGIHAN_TABLE)
-    .select(`
-      id,
-      status_bayar,
-      kamar:kamar_id (
-        id,
-        gedung:gedung_id (
-          id,
-          nama
-        )
-      )
-    `)
-    .eq('bulan', month)
-    .eq('tahun', year);
-
-  if (error) {
-    throw new Error(`Gagal mengambil ringkasan listrik: ${error.message}`);
-  }
-
+  const [rooms, paidBills] = await Promise.all([
+    getOccupiedRooms(),
+    getPaidBillsForPeriod(month, year),
+  ]);
+  const paidByKamarId = keyByKamarId(paidBills);
   const grouped = new Map();
 
-  for (const bill of data || []) {
-    const building = bill.kamar?.gedung || {};
-    const key = building.id || 'tanpa-gedung';
-    const name = building.nama || 'Tanpa Gedung';
+  for (const room of rooms) {
+    const key = room.gedung?.id || 'tanpa-gedung';
+    const name = room.gedung?.nama || 'Tanpa Gedung';
 
     if (!grouped.has(key)) {
-      grouped.set(key, { id: building.id || null, name, nama: name, total: 0, paid: 0, unpaid: 0 });
+      grouped.set(key, { id: room.gedung?.id || null, name, nama: name, total: 0, paid: 0, unpaid: 0 });
     }
 
     const summary = grouped.get(key);
     summary.total += 1;
-    if (isPaid(bill.status_bayar)) {
+    if (paidByKamarId.has(String(room.id))) {
       summary.paid += 1;
     } else {
       summary.unpaid += 1;
@@ -320,46 +333,24 @@ async function getUnpaidTenants(bulan, tahun) {
   const year = parseYear(tahun);
   const periodLabel = getPeriodLabel(month, year);
 
-  const { data, error } = await supabase
-    .from(TAGIHAN_TABLE)
-    .select(`
-      id,
-      status_bayar,
-      kamar:kamar_id (
-        id,
-        nomor_kamar,
-        nama_penyewa,
-        gedung:gedung_id (
-          id,
-          nama
-        )
-      )
-    `)
-    .eq('bulan', month)
-    .eq('tahun', year);
-
-  if (error) {
-    throw new Error(`Gagal mengambil daftar belum bayar listrik: ${error.message}`);
-  }
-
-  const tenants = (data || [])
-    .filter((bill) => !isPaid(bill.status_bayar))
-    .map((bill) => {
-      const kamar = bill.kamar || {};
-      const gedung = kamar.gedung || {};
-
-      return {
-        tagihanId: bill.id,
-        nomor_kamar: kamar.nomor_kamar || null,
-        nama_penyewa: kamar.nama_penyewa || null,
-        gedung: {
-          nama: gedung.nama || null,
-        },
-        roomCode: kamar.nomor_kamar || null,
-        tenantName: kamar.nama_penyewa || null,
-        buildingName: gedung.nama || null,
-      };
-    });
+  const [rooms, paidBills] = await Promise.all([
+    getOccupiedRooms(),
+    getPaidBillsForPeriod(month, year),
+  ]);
+  const paidByKamarId = keyByKamarId(paidBills);
+  const tenants = rooms
+    .filter((room) => !paidByKamarId.has(String(room.id)))
+    .map((room) => ({
+      tagihanId: null,
+      nomor_kamar: room.nomor_kamar,
+      nama_penyewa: room.nama_penyewa,
+      gedung: {
+        nama: room.gedung?.nama || null,
+      },
+      roomCode: room.roomCode,
+      tenantName: room.tenantName,
+      buildingName: room.buildingName,
+    }));
 
   return { periodLabel, tenants };
 }
@@ -421,49 +412,25 @@ async function getExistingUnpaidTenantsForPeriod(bulan, tahun) {
   const year = parseYear(tahun);
   const periodLabel = getPeriodLabel(month, year);
 
-  const { data, error } = await supabase
-    .from(TAGIHAN_TABLE)
-    .select(`
-      id,
-      bulan,
-      tahun,
-      status_bayar,
-      kamar:kamar_id (
-        id,
-        nomor_kamar,
-        nama_penyewa,
-        hp_penyewa,
-        gedung:gedung_id (
-          id,
-          nama
-        )
-      )
-    `)
-    .eq('bulan', month)
-    .eq('tahun', year)
-    .or(`status_bayar.is.null,status_bayar.neq.${PAID_STATUS}`);
-
-  if (error) {
-    throw new Error(`Gagal mengambil data reminder listrik: ${error.message}`);
-  }
-
-  const tenants = (data || []).map((bill) => {
-    const kamar = bill.kamar || {};
-    const gedung = kamar.gedung || {};
-
-    return {
-      tagihanId: bill.id,
-      bulan: bill.bulan,
-      tahun: bill.tahun,
+  const [rooms, paidBills] = await Promise.all([
+    getOccupiedRooms(),
+    getPaidBillsForPeriod(month, year),
+  ]);
+  const paidByKamarId = keyByKamarId(paidBills);
+  const tenants = rooms
+    .filter((room) => !paidByKamarId.has(String(room.id)))
+    .map((room) => ({
+      tagihanId: null,
+      bulan: month,
+      tahun: year,
       periodLabel,
-      kamarId: kamar.id || null,
-      roomCode: kamar.nomor_kamar || null,
-      tenantName: kamar.nama_penyewa || null,
-      tenantPhone: kamar.hp_penyewa || null,
-      buildingName: gedung.nama || null,
-      statusBayar: bill.status_bayar,
-    };
-  });
+      kamarId: room.id,
+      roomCode: room.roomCode,
+      tenantName: room.tenantName,
+      tenantPhone: room.tenantPhone,
+      buildingName: room.buildingName,
+      statusBayar: UNPAID_STATUS,
+    }));
 
   return { periodLabel, tenants };
 }
@@ -599,17 +566,35 @@ async function markElectricityPaidByTagihanId(tagihanId, method, logContext = {}
 
 async function markElectricityPaidByRoomCode(roomCode, bulan, tahun, method) {
   const roomLookup = await getRoomByCode(roomCode);
+  const result = await markElectricityPaidByKamarId(
+    roomLookup.room.id,
+    bulan,
+    tahun,
+    method,
+    { roomCode: roomLookup.roomCode },
+  );
+
+  return {
+    ...result,
+    roomCode: roomLookup.roomCode,
+    tenantName: roomLookup.tenantName,
+    buildingName: roomLookup.buildingName,
+  };
+}
+
+async function markElectricityPaidByKamarId(kamarId, bulan, tahun, method, logContext = {}) {
+  if (!kamarId) {
+    throw new Error('Kamar ID wajib diisi.');
+  }
+
   const month = parseMonth(bulan);
   const year = parseYear(tahun);
   const periodLabel = getPeriodLabel(month, year);
-  const existingBill = await getCurrentTenantBill(roomLookup.room.id, month, year);
+  const existingBill = await getCurrentTenantBill(kamarId, month, year);
 
   if (existingBill && isPaid(existingBill.status_bayar)) {
     return {
       ...existingBill,
-      roomCode: roomLookup.roomCode,
-      tenantName: roomLookup.tenantName,
-      buildingName: roomLookup.buildingName,
       periodLabel,
       method: existingBill.metode_bayar,
       alreadyPaid: true,
@@ -619,14 +604,14 @@ async function markElectricityPaidByRoomCode(roomCode, bulan, tahun, method) {
   let updated;
   if (existingBill) {
     updated = await markElectricityPaidByTagihanId(existingBill.id, method, {
-      roomCode: roomLookup.roomCode,
+      ...logContext,
     });
   } else {
     const updatePayload = buildPaidUpdate(method);
     const { data, error } = await supabase
       .from(TAGIHAN_TABLE)
       .insert({
-        kamar_id: roomLookup.room.id,
+        kamar_id: kamarId,
         bulan: month,
         tahun: year,
         ...updatePayload,
@@ -647,9 +632,6 @@ async function markElectricityPaidByRoomCode(roomCode, bulan, tahun, method) {
 
   return {
     ...updated,
-    roomCode: roomLookup.roomCode,
-    tenantName: roomLookup.tenantName,
-    buildingName: roomLookup.buildingName,
     periodLabel,
     method: updated.metode_bayar,
     created: !existingBill,
@@ -665,18 +647,14 @@ async function getOwnElectricityStatus(kamarId, bulan, tahun) {
   const year = parseYear(tahun);
   const bill = await getCurrentTenantBill(kamarId, month, year);
 
-  if (!bill) {
-    return null;
-  }
-
   return {
     periodLabel: getPeriodLabel(month, year),
     amountPerPerson: getNominalAmount(),
-    isPaid: isPaid(bill.status_bayar),
-    paidAt: bill.tanggal_bayar,
-    paymentMethod: bill.metode_bayar,
-    statusBayar: bill.status_bayar,
-    tagihanId: bill.id,
+    isPaid: isPaid(bill?.status_bayar),
+    paidAt: isPaid(bill?.status_bayar) ? bill.tanggal_bayar : null,
+    paymentMethod: isPaid(bill?.status_bayar) ? bill.metode_bayar : null,
+    statusBayar: isPaid(bill?.status_bayar) ? PAID_STATUS : UNPAID_STATUS,
+    tagihanId: isPaid(bill?.status_bayar) ? bill.id : null,
   };
 }
 
@@ -689,7 +667,6 @@ module.exports = {
   getBillById,
   getCurrentTenantBill,
   getOldestUnpaidTenantBill,
-  getOrCreateCurrentTenantBill,
   getElectricitySummary,
   getPaidTenants,
   getUnpaidTenants,
@@ -697,6 +674,7 @@ module.exports = {
   getRoomByCode,
   getElectricityBillByRoomCode,
   markElectricityPaidByTagihanId,
+  markElectricityPaidByKamarId,
   markElectricityPaidByRoomCode,
   normalizeTagihanMetodeBayarForDb,
   formatMetodeBayarForAdminDisplay,

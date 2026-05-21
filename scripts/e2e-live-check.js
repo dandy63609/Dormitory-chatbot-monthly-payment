@@ -17,7 +17,7 @@ const SUPABASE_KEY_ENV_NAMES = [
 const KAMAR_TABLE = 'kamar';
 const TAGIHAN_TABLE = 'tagihan_listrik';
 const OCCUPIED_STATUS = 'Terisi';
-const PAID_STATUS = 'lunas';
+const PAID_STATUS = 'Lunas';
 const DEFAULT_ELECTRICITY_NOMINAL = 55000;
 
 const results = [];
@@ -162,7 +162,7 @@ function formatDate(value) {
 }
 
 function getPaymentStatusLabel(bill) {
-  if (String(bill?.status_bayar || '').trim().toLowerCase() === PAID_STATUS) {
+  if (String(bill?.status_bayar || '').trim().toLowerCase() === PAID_STATUS.toLowerCase()) {
     return 'Sampun lunas';
   }
 
@@ -267,25 +267,6 @@ async function findCurrentBill(supabase, tenant, period) {
   return data || null;
 }
 
-async function createCurrentBill(supabase, tenant, period) {
-  const { data, error } = await supabase
-    .from(TAGIHAN_TABLE)
-    .insert({
-      kamar_id: tenant.id,
-      bulan: period.month,
-      tahun: period.year,
-      status_bayar: 'belum_bayar',
-      metode_bayar: null,
-      tanggal_bayar: null,
-    })
-    .select('id, kamar_id, bulan, tahun, status_bayar, metode_bayar, tanggal_bayar')
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error('Supabase insert returned no tagihan_listrik row.');
-  return data;
-}
-
 async function main() {
   console.log('Martinos Kos Bot live E2E service check');
   console.log('No .env file is loaded by this script. Env values are never printed.');
@@ -337,17 +318,11 @@ async function main() {
     bill = await findCurrentBill(supabase, tenant, period);
     if (bill) {
       pass('current month tagihan_listrik', `${getMonthName(period.month)} ${period.year} row exists`);
-    } else if (env.allowWrites) {
-      warn('current month tagihan_listrik', 'missing; E2E_ALLOW_WRITES=true so creating unpaid row');
-      bill = await createCurrentBill(supabase, tenant, period);
-      pass('current month tagihan_listrik', `${getMonthName(period.month)} ${period.year} row created`);
     } else {
-      fail(
+      warn(
         'current month tagihan_listrik',
-        `missing for ${getMonthName(period.month)} ${period.year}; /bayar_listrik would try to create it`,
+        `missing for ${getMonthName(period.month)} ${period.year}; treated as unpaid by derived billing logic`,
       );
-      console.log('\nOverall: FAIL');
-      process.exit(1);
     }
   } catch (error) {
     fail('current month tagihan_listrik', error.message);

@@ -11,6 +11,11 @@
 - Do not use Supabase Storage or paid APIs
 ## 1. Actual Supabase Schema
 Tables: `gedung`, `kamar`, `tagihan_listrik`
+Billing rule:
+- `tagihan_listrik` is a payment record table, not a monthly invoice checklist.
+- `kamar.status_kamar = Terisi` is the expected payer list.
+- No `tagihan_listrik` row for an occupied room and period means unpaid.
+- Paid/unpaid summaries compare occupied rooms against paid `tagihan_listrik` rows.
 Mapping:
 - `gedung.id` â†’ building ID
 - `gedung.nama` â†’ building name
@@ -66,9 +71,10 @@ Deprecated old utility commands:
 `/bayar_listrik`:
 1. Detect current month/year.
 2. Find tenant from `kamar.hp_penyewa`.
-3. Find or create `tagihan_listrik` by `kamar.id + bulan + tahun`.
-4. Show amount from `MARTINOS_LISTRIK_NOMINAL`, default `55000`.
-5. Ask tenant to choose `/cash` or `/transfer`.
+3. Find current `tagihan_listrik` payment record by `kamar.id + bulan + tahun`.
+4. Do not create a `Belum Bayar` row. Missing row means unpaid.
+5. Show amount from `MARTINOS_LISTRIK_NOMINAL`, default `55000`.
+6. Ask tenant to choose `/cash` or `/transfer`.
 `/cash` or `cash`:
 - Store pending method = `cash`
 - Reply: `Nggih Mas {nama_penyewa}. Kirim bukti foto uang sampun diletakkan nggih.`
@@ -88,7 +94,8 @@ Image/document proof:
 Admin accept `/terima_bukti <code>`:
 - Admin only
 - Find pending verification
-- Update `tagihan_listrik`: `status_bayar = 'lunas'`, `metode_bayar = stored method`, `tanggal_bayar = current date`
+- If a payment row exists, update `tagihan_listrik`: `status_bayar = 'Lunas'`, `metode_bayar = stored method`, `tanggal_bayar = current date`
+- If no payment row exists, create a paid `tagihan_listrik` row with `status_bayar = 'Lunas'`
 - Notify tenant
 Admin reject `/tolak_bukti <code> <reason>`:
 - Admin only
@@ -102,11 +109,11 @@ Admin reject `/tolak_bukti <code> <reason>`:
 ## 5. Admin Electricity Flow
 `/listrik <bulan> <tahun>`:
 - Admin only
-- Query `tagihan_listrik` joined with `kamar` and `gedung`
-- Summarize paid/unpaid by `gedung`
+- Query occupied `kamar` rows and paid `tagihan_listrik` rows for the period
+- Summarize expected/paid/unpaid by `gedung`
 `/belum_listrik <bulan> <tahun>`:
 - Admin only
-- List unpaid room code + tenant name + building
+- List occupied rooms that do not have a paid `tagihan_listrik` row for the period
 - Do not include phone, KTP, parent contact, or address
 `/sudah_listrik <bulan> <tahun>` or `/sudah-listrik <bulan> <tahun>`:
 - Admin only

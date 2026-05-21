@@ -41,10 +41,13 @@ Deprecated old utility commands such as `/model_info`, `/switch`, `/ai_usage`, `
 
 ## Payment Safety Rules
 
-- `/bayar_listrik` shows the oldest unpaid bill first.
+- `tagihan_listrik` is a payment record table, not a monthly invoice checklist.
+- `kamar.status_kamar = 'Terisi'` defines who is expected to pay electricity each month.
+- No `tagihan_listrik` row for an occupied room and period means that tenant is treated as unpaid.
+- Paid/unpaid summaries are calculated from occupied rooms minus paid payment rows.
+- `/bayar_listrik` shows the current month payment status without creating an unpaid row.
 - If the current month is already paid, tenants are told they do not need to send proof again.
-- Tenant reminders on the 10th only message tenants with existing unpaid bill rows.
-- Reminder jobs do not create missing monthly bills.
+- Tenant reminders on the 10th message occupied tenants who do not have a paid row for the month.
 - Proof approval is admin-only and proof codes expire after 24 hours.
 - Admin announcements are group-only, not direct messages to every tenant.
 

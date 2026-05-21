@@ -39,10 +39,13 @@ Command lama seperti `/model_info`, `/switch`, `/ai_usage`, `/donate`, `/downloa
 
 ## Aturan Aman Pembayaran
 
-- `/bayar_listrik` menampilkan tagihan belum lunas yang paling lama terlebih dahulu.
+- `tagihan_listrik` adalah tabel catatan pembayaran, bukan daftar tagihan bulanan kosong.
+- `kamar.status_kamar = 'Terisi'` menentukan siapa yang wajib bayar listrik tiap bulan.
+- Tidak ada baris `tagihan_listrik` untuk kamar aktif dan periode tertentu berarti penghuni itu dianggap belum bayar.
+- Ringkasan sudah/belum bayar dihitung dari kamar aktif dikurangi baris pembayaran yang sudah `Lunas`.
+- `/bayar_listrik` menampilkan status bulan berjalan tanpa membuat baris belum bayar.
 - Kalau bulan berjalan sudah lunas, penghuni diberi tahu tidak perlu kirim bukti lagi.
-- Reminder tanggal 10 hanya menghubungi penghuni yang punya baris tagihan belum lunas.
-- Reminder tidak membuat tagihan baru secara otomatis.
+- Reminder tanggal 10 menghubungi penghuni aktif yang belum punya baris pembayaran `Lunas` untuk bulan itu.
 - Bukti bayar hanya bisa diterima/ditolak admin dan kode bukti aktif 24 jam.
 - Pengumuman admin hanya dikirim ke grup, bukan chat pribadi semua penghuni.
 

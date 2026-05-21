@@ -545,17 +545,12 @@ async function handleStatusBayarInfo(tenant) {
   }
 
   const { bulan, tahun } = getCurrentPeriod();
-  const bill = await electricityService.getCurrentTenantBill(kamarId, bulan, tahun);
-
-  if (!bill) {
-    return fmt([
-      `> *STATUS BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
-      '',
-      `Nggih, ${getTenantMasName(tenant)}.`,
-      `Kamar: *${getTenantRoomCode(tenant)}*`,
-      'Tagihan listrik bulan ini belum tersedia.',
-    ]);
-  }
+  const status = await electricityService.getOwnElectricityStatus(kamarId, bulan, tahun);
+  const bill = {
+    status_bayar: status.statusBayar,
+    metode_bayar: status.paymentMethod,
+    tanggal_bayar: status.paidAt,
+  };
 
   return fmt([
     `> *STATUS BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
@@ -575,12 +570,7 @@ async function handleBayarListrik(userId, tenant) {
   }
 
   const { bulan, tahun } = getCurrentPeriod();
-  const oldestUnpaidBill = await electricityService.getOldestUnpaidTenantBill(kamarId);
-  const bill = oldestUnpaidBill || await electricityService.getOrCreateCurrentTenantBill(kamarId, bulan, tahun);
-  const isPreviousUnpaid = oldestUnpaidBill
-    ? electricityService.isBeforePeriod(oldestUnpaidBill, bulan, tahun)
-    : false;
-  const billPeriodLabel = formatBillPeriod(bill);
+  const bill = await electricityService.getCurrentTenantBill(kamarId, bulan, tahun);
 
   if (String(bill?.status_bayar || '').trim().toLowerCase() === 'lunas') {
     return fmt([
@@ -600,21 +590,18 @@ async function handleBayarListrik(userId, tenant) {
   setPending(pendingTenantPayments, userId, {
     tenant,
     kamarId,
-    billId: bill.id,
-    bulan: electricityService.getMonthName(bill.bulan),
-    tahun: bill.tahun,
+    billId: bill?.id || null,
+    bulan,
+    tahun,
     method: null,
   });
 
   return fmt([
-    `> *BAYAR LISTRIK ${String(electricityService.getMonthName(bill.bulan)).toUpperCase()} ${bill.tahun}*`,
+    `> *BAYAR LISTRIK ${String(bulan).toUpperCase()} ${tahun}*`,
     '',
     `Nggih ${getTenantMasName(tenant)}`,
     `Kamar: ${getTenantRoomCode(tenant)}`,
     `Gedung: ${getTenantBuildingLabel(tenant)}`,
-    isPreviousUnpaid
-      ? `Panjenengan taksih kagungan tagihan listrik bulan sebelumnya: *${billPeriodLabel}*. Dilunasi rumiyin nggih.`
-      : null,
     `Total tagihan: ${formatRupiah(getNominal())}`,
     `Status: ${getElectricityPaymentStatusLabel(bill)}`,
     '',
@@ -951,7 +938,8 @@ async function handleProofUpload(msg, userId, tenant, sock) {
     tenantName: getTenantName(tenantForLog),
     tenantWhatsappJid: tenantChatJid,
     roomCode: getTenantRoomCode(tenantForLog),
-    tagihanId: pending.billId,
+    tagihanId: pending.billId || null,
+    kamarId: pending.kamarId,
     metodeBayar: pending.method,
     createdAt: Date.now(),
     tenant: tenantForLog,

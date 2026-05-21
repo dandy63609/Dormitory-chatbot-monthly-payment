@@ -11,7 +11,9 @@ const martinosPaymentVerificationService = require('../src/services/martinosPaym
 const { buildAdminProofCaption } = require('../src/commands/kos');
 
 const realMarkElectricityPaid = electricityService.markElectricityPaidByTagihanId;
+const realMarkElectricityPaidByKamarId = electricityService.markElectricityPaidByKamarId;
 const realGetBillById = electricityService.getBillById;
+const realGetCurrentTenantBill = electricityService.getCurrentTenantBill;
 
 test('payment proof verification expires after 24 hours', () => {
   assert.equal(
@@ -22,7 +24,9 @@ test('payment proof verification expires after 24 hours', () => {
 
 test.afterEach(() => {
   electricityService.markElectricityPaidByTagihanId = realMarkElectricityPaid;
+  electricityService.markElectricityPaidByKamarId = realMarkElectricityPaidByKamarId;
   electricityService.getBillById = realGetBillById;
+  electricityService.getCurrentTenantBill = realGetCurrentTenantBill;
 });
 
 function stubTenant() {
@@ -118,6 +122,41 @@ test('approveMartinosProofWithSocket retries tenant notification once after send
   assert.equal(result.ok, true);
   assert.equal(result.tenantNotified, true);
   assert.equal(sendCalls, 2);
+});
+
+test('approveMartinosProofWithSocket creates a paid row when no bill row exists', async () => {
+  let received;
+  electricityService.getCurrentTenantBill = async () => null;
+  electricityService.markElectricityPaidByKamarId = async (kamarId, bulan, tahun, method) => {
+    received = { kamarId, bulan, tahun, method };
+    return {
+      id: 'created-paid-row',
+      metode_bayar: method,
+      status_bayar: 'Lunas',
+    };
+  };
+
+  const sock = { sendMessage: async () => {} };
+
+  martinosPaymentVerificationService.registerMartinosProofVerification('BUKTI-9250', {
+    tenantName: 'A',
+    tenantWhatsappJid: 'local-test@s.whatsapp.net',
+    roomCode: 'R9',
+    kamarId: 'room-9250',
+    metodeBayar: 'transfer',
+    tenant: stubTenant(),
+    bulan: 'Mei',
+    tahun: 2026,
+  });
+
+  const result = await martinosPaymentVerificationService.approveMartinosProofWithSocket('9250', sock);
+  assert.equal(result.ok, true);
+  assert.deepEqual(received, {
+    kamarId: 'room-9250',
+    bulan: 'Mei',
+    tahun: 2026,
+    method: 'Transfer Bank',
+  });
 });
 
 test('rejectMartinosProofWithSocket does not call markElectricityPaidByTagihanId', async () => {

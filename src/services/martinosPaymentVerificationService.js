@@ -44,7 +44,8 @@ function isProofCodeInUse(code) {
  * @param {string} record.tenantName
  * @param {string} record.tenantWhatsappJid
  * @param {string} record.roomCode
- * @param {string} record.tagihanId
+ * @param {string|null} [record.tagihanId]
+ * @param {string|number} [record.kamarId]
  * @param {string} record.metodeBayar
  * @param {number} [record.createdAt]
  * @param {object} [record.tenant]
@@ -63,7 +64,8 @@ function registerMartinosProofVerification(code, record) {
     tenantName: String(record.tenantName || '').trim() || '-',
     tenantWhatsappJid: String(record.tenantWhatsappJid || '').trim(),
     roomCode,
-    tagihanId: record.tagihanId,
+    tagihanId: record.tagihanId || null,
+    kamarId: record.kamarId || null,
     metodeBayar,
     metodeBayarInput: methodInput,
     createdAt,
@@ -74,7 +76,7 @@ function registerMartinosProofVerification(code, record) {
 
   console.log('[Martinos] proof verification registered', {
     code: normalized,
-    tagihanId: record.tagihanId,
+    tagihanId: record.tagihanId || null,
     roomCode,
     methodInput,
     normalizedMetodeBayar: metodeBayar,
@@ -160,16 +162,15 @@ async function approveMartinosProofWithSocket(code, sock) {
   const methodInput = pending.metodeBayarInput ?? pending.metodeBayar;
 
   try {
-    const existingBill = await electricityService.getBillById(pending.tagihanId);
-    if (!existingBill) {
-      return {
-        ok: false,
-        reason: 'db_error',
-        message: `Tagihan listrik dengan ID "${pending.tagihanId}" tidak ditemukan.`,
-      };
-    }
+    const existingBill = pending.tagihanId
+      ? await electricityService.getBillById(pending.tagihanId)
+      : await electricityService.getCurrentTenantBill(
+        pending.kamarId,
+        pending.bulan,
+        pending.tahun,
+      );
 
-    if (electricityService.isPaid(existingBill.status_bayar)) {
+    if (electricityService.isPaid(existingBill?.status_bayar)) {
       clearPending(pendingProofVerifications, normalized);
       console.log('[Martinos] proof approve skipped', {
         code: normalized,
@@ -190,11 +191,19 @@ async function approveMartinosProofWithSocket(code, sock) {
       };
     }
 
-    const updated = await electricityService.markElectricityPaidByTagihanId(
-      pending.tagihanId,
-      pending.metodeBayar,
-      { code: normalized, roomCode: pending.roomCode ?? null },
-    );
+    const updated = existingBill
+      ? await electricityService.markElectricityPaidByTagihanId(
+        existingBill.id,
+        pending.metodeBayar,
+        { code: normalized, roomCode: pending.roomCode ?? null },
+      )
+      : await electricityService.markElectricityPaidByKamarId(
+        pending.kamarId,
+        pending.bulan,
+        pending.tahun,
+        pending.metodeBayar,
+        { code: normalized, roomCode: pending.roomCode ?? null },
+      );
     clearPending(pendingProofVerifications, normalized);
     const tenantNotified = await sendTenantWhatsAppWithRetry(sock, pending.tenantWhatsappJid, TENANT_TEXT_APPROVED);
 
