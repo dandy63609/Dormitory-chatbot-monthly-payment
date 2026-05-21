@@ -56,5 +56,5 @@ jobs:
             npm ci --omit=dev
             
             # Restart bot
-            pm2 reload dormitory-chatbot-monthly-payment --update-env || pm2 start src/index.js --name dormitory-chatbot-monthly-payment
+            pm2 reload Dormitory-chatbot-monthly-payment --update-env || pm2 start src/index.js --name Dormitory-chatbot-monthly-payment
             pm2 save
