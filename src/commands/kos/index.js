@@ -12,6 +12,7 @@ const { normalizePhone } = require('../../services/tenantService');
 
 const DEFAULT_ELECTRICITY_NOMINAL = 55000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_TECH_SUPPORT_NUMBER = '08511771087';
 
 const pendingAdminMarkPaid = {};
 const pendingTenantPayments = {};
@@ -44,6 +45,30 @@ function fmt(lines) {
   return lines
     .filter((line) => line !== null && line !== undefined && line !== false)
     .join('\n');
+}
+
+function getTechSupportNumber() {
+  return String(process.env.MARTINOS_TECH_SUPPORT_NUMBER || DEFAULT_TECH_SUPPORT_NUMBER).trim();
+}
+
+function buildTenantTechnicalIssueReply(tenant, detail) {
+  return fmt([
+    `Amit nggih, ${getTenantMasName(tenant)}.`,
+    detail || 'Bot sedang gangguan/diperbaiki.',
+    `Tolong hubungi teknisi di ${getTechSupportNumber()} supaya dicek.`,
+  ]);
+}
+
+async function safeSendMessage(sock, jid, content, options) {
+  try {
+    await sock.sendMessage(jid, content, options);
+    return true;
+  } catch (error) {
+    const statusCode = error?.statusCode || error?.output?.statusCode || '-';
+    const message = String(error?.message || 'Unknown sendMessage error');
+    console.error(`Gagal mengirim pesan WhatsApp Martinos: ${statusCode} ${message}`);
+    return false;
+  }
 }
 
 function getNominal() {
@@ -883,7 +908,7 @@ async function handleProofUpload(msg, userId, tenant, sock) {
   const replyJid = msg?.key?.remoteJid || tenantChatJid;
 
   if (!pending || !pending.method) {
-    await sock.sendMessage(replyJid, {
+    await safeSendMessage(sock, replyJid, {
       text: buildStartPaymentFirstReply(tenant || pending?.tenant),
     }, { quoted: msg });
     return true;
@@ -892,7 +917,7 @@ async function handleProofUpload(msg, userId, tenant, sock) {
   const adminJid = toWhatsAppJid(process.env.MARTINOS_ADMIN_WA_JID);
 
   if (!adminJid) {
-    await sock.sendMessage(replyJid, {
+    await safeSendMessage(sock, replyJid, {
       text: fmt([
         `Ngapunten, ${getTenantMasName(tenant || pending.tenant)}.`,
         'Bukti pembayaran belum bisa diteruske karena nomor admin belum disetel.',
@@ -912,8 +937,11 @@ async function handleProofUpload(msg, userId, tenant, sock) {
     );
   } catch (error) {
     console.error('Gagal download bukti pembayaran Martinos:', error);
-    await sock.sendMessage(replyJid, {
-      text: `Ngapunten, ${getTenantMasName(tenant || pending.tenant)}. Bukti pembayaran gagal diproses. Coba kirim ulang fotone ya.`,
+    await safeSendMessage(sock, replyJid, {
+      text: buildTenantTechnicalIssueReply(
+        tenant || pending.tenant,
+        'Bukti pembayaran gagal diproses. Coba kirim ulang fotone mengko nggih.',
+      ),
     }, { quoted: msg });
     return true;
   }
@@ -966,15 +994,18 @@ async function handleProofUpload(msg, userId, tenant, sock) {
   } catch (error) {
     martinosPaymentVerificationService.clearMartinosProofVerification(code);
     console.error('Gagal meneruskan bukti pembayaran Martinos ke admin:', error);
-    await sock.sendMessage(replyJid, {
-      text: `Ngapunten, ${getTenantMasName(tenant || pending.tenant)}. Bukti pembayaran belum bisa diteruske ke admin. Coba maneh beberapa saat ya.`,
+    await safeSendMessage(sock, replyJid, {
+      text: buildTenantTechnicalIssueReply(
+        tenant || pending.tenant,
+        'Bukti pembayaran belum berhasil diteruske ke admin. Monggo kirim ulang mengko sakwise bot normal.',
+      ),
     }, { quoted: msg });
     return true;
   }
 
   clearPending(pendingTenantPayments, userId);
 
-  await sock.sendMessage(replyJid, {
+  await safeSendMessage(sock, replyJid, {
     text: fmt([
       `Oke ${getTenantMasName(tenant || pending.tenant)}, bukti pembayaran sampun tak teruske ke admin.`,
       'Mangga ditunggu sek nggih. Nek sampun diverifikasi, nanti tak kabari.',

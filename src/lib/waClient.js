@@ -1,15 +1,15 @@
 const makeWASocket = require('@whiskeysockets/baileys').default;
 const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
-const path = require('path');
 const fs = require('fs');
 const qrcode = require('qrcode-terminal');
+const settings = require('../config/settings');
 
 const baileysLogger = pino({ level: 'silent' });
 
 async function connectToWhatsApp() {
-    // Membuat folder auth/whatsapp jika belum ada
-    const authFolder = path.join(__dirname, '..', '..', 'auth', 'whatsapp');
+    // Keep WhatsApp auth in the configured stable folder.
+    const authFolder = settings.whatsapp.sessionDir;
     if (!fs.existsSync(authFolder)) {
         fs.mkdirSync(authFolder, { recursive: true });
     }

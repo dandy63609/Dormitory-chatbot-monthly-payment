@@ -9,6 +9,7 @@ on:
       - "test/**"
       - "package.json"
       - "package-lock.json"
+      - "ecosystem.config.js"
       - ".github/workflows/deploy.yml"
 
 permissions:
@@ -55,6 +56,6 @@ jobs:
             # Install production dependencies exactly from package-lock.json
             npm ci --omit=dev
             
-            # Restart bot
-            pm2 reload Dormitory-chatbot-monthly-payment --update-env || pm2 start src/index.js --name Dormitory-chatbot-monthly-payment
+            # Restart bot using the production PM2 config
+            pm2 startOrReload ecosystem.config.js --update-env
             pm2 save
