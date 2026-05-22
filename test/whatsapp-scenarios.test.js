@@ -86,6 +86,23 @@ test('WhatsApp admin and tenant menus are role-specific', async () => {
   assert.match(tenantMenu, /\/status_bayar_info/);
 });
 
+test('non-command chat gets deterministic role help instead of AI fallback', () => {
+  const adminReply = waHandlerTest.buildRoleHelpReply('admin', null, false);
+  assert.match(adminReply, /Kula Ajeng/);
+  assert.match(adminReply, /Bu Umi/);
+  assert.match(adminReply, /\/listrik mei 2026/);
+  assert.match(adminReply, /\/sudah_listrik mei 2026/);
+  assert.match(adminReply, /\/belum_listrik mei 2026/);
+  assert.match(adminReply, /\/umumkan semua/);
+
+  const tenantReply = waHandlerTest.buildRoleHelpReply('tenant', tenant(), false);
+  assert.match(tenantReply, /Kula Ajeng/);
+  assert.match(tenantReply, /Mas Budi/);
+  assert.match(tenantReply, /\/bayar_listrik/);
+  assert.match(tenantReply, /\/status_bayar_info/);
+  assert.doesNotMatch(`${adminReply}\n${tenantReply}`, /gangguan|OpenRouter|model/i);
+});
+
 test('WhatsApp admin and tenant cannot use each other commands', async () => {
   const adminUsingTenantCommand = await handleKosCommand(
     '/bayar_listrik',

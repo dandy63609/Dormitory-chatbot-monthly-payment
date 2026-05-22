@@ -4,7 +4,6 @@ const {
   handleProofUpload,
   handlePendingConfirmation,
 } = require("../commands/kos/index");
-const { askAiDetailed } = require("../lib/aiClient");
 const { logCommand } = require("../services/logService");
 
 const MARTINOS_ONLY_COMMANDS = new Set([
@@ -279,11 +278,15 @@ function buildRoleClaimReply(message, role, tenant) {
     normalized.includes("aku ibu kos");
 
   if (role === "admin" && claimsTenant) {
-    return "Nggih Bu Umi, sistem maca nomor iki sebagai admin Martinos Kos.";
+    return buildAdminGreetingReply(false);
   }
 
   if (role === "tenant" && claimsAdmin) {
-    return `Ngapunten Mas ${getTenantAiName(tenant)}, nomor iki terdaftar sebagai penghuni, dudu admin.`;
+    return [
+      `Ngapunten Mas ${getTenantAiName(tenant)}, nomor iki terdaftar sebagai penghuni, dudu admin.`,
+      '',
+      buildTenantGreetingReply(tenant),
+    ].join('\n');
   }
 
   return null;
@@ -316,16 +319,42 @@ function isGreetingText(text) {
 
 function buildTenantGreetingReply(tenant) {
   return [
-    `Nggih Mas ${getTenantAiName(tenant)}, panjenengan terdaftar nang ${getTenantAiBuildingName(tenant)}, kamar ${getTenantAiRoomCode(tenant)}.`,
-    "Kanggo bayar listrik, ketik /bayar_listrik.",
-    "Kanggo cek status bayar, ketik /status_bayar_info.",
+    `> *Halo Mas ${getTenantAiName(tenant)}, Kula Ajeng*`,
+    '',
+    `Panjenengan terdaftar nang *${getTenantAiBuildingName(tenant)}*, kamar *${getTenantAiRoomCode(tenant)}*.`,
+    'Ajeng bantu urusan pembayaran listrik Martinos Kos.',
+    '',
+    '*Sing saged Mas lakoni:*',
+    '- */bayar_listrik* : mulai proses bayar listrik bulan iki.',
+    '- */status_bayar_info* : cek status pembayaran listrik panjenengan.',
+    '',
+    '*Contoh:*',
+    '/bayar_listrik',
+    '/status_bayar_info',
   ].join("\n");
 }
 
 function buildAdminGreetingReply(isDualRoleTest = false) {
   const lines = [
-    "Nggih Bu Umi, panjenengan admin Martinos Kos. Aku bantu cek listrik lan ngirim pengumuman kos.",
-    "Ketik /kos_info kanggo lihat menu admin.",
+    "> *Halo Bu Umi, Kula Ajeng*",
+    "",
+    "Panjenengan terdaftar sebagai admin Martinos Kos.",
+    "Ajeng bantu cek pembayaran listrik, verifikasi bukti, catat pembayaran manual, lan ngirim pengumuman kos.",
+    "",
+    "*Sing saged Bu Umi lakoni:*",
+    "- */listrik <bulan> <tahun>* : ringkasan pembayaran listrik.",
+    "- */sudah_listrik <bulan> <tahun>* : daftar penghuni sing sampun bayar.",
+    "- */belum_listrik <bulan> <tahun>* : daftar penghuni sing dereng bayar.",
+    "- */lunas_listrik <kamar> <bulan> <tahun> <cash|transfer>* : catat pembayaran manual.",
+    "- */umumkan <target> <pesan>* : kirim pengumuman ke grup kos.",
+    "- */terima_bukti <kode>* / */tolak_bukti <kode> <alasan>* : proses bukti pembayaran.",
+    "",
+    "*Contoh:*",
+    "/listrik mei 2026",
+    "/sudah_listrik mei 2026",
+    "/belum_listrik mei 2026",
+    "/lunas_listrik k2-01 mei 2026 cash",
+    "/umumkan semua Besok air mati jam 10 pagi",
   ];
 
   if (isDualRoleTest) {
@@ -333,6 +362,12 @@ function buildAdminGreetingReply(isDualRoleTest = false) {
   }
 
   return lines.join("\n");
+}
+
+function buildRoleHelpReply(role, tenant, isDualRoleTest = false) {
+  if (role === "admin") return buildAdminGreetingReply(isDualRoleTest);
+  if (role === "tenant") return buildTenantGreetingReply(tenant);
+  return NOT_REGISTERED_REPLY;
 }
 
 function buildRoleAwareAiPrompt(message, role, tenant) {
@@ -518,9 +553,7 @@ class WhatsAppHandler {
 
         if (isGreetingText(cleanText)) {
           const greetingReply =
-            role === "tenant"
-              ? buildTenantGreetingReply(tenant)
-              : buildAdminGreetingReply(effectiveRole.isDualRoleTest);
+            buildRoleHelpReply(role, tenant, effectiveRole.isDualRoleTest);
           await safeSendMessage(this.sock, remoteJid, { text: greetingReply }, { quoted: msg });
           return;
         }
@@ -585,28 +618,13 @@ class WhatsAppHandler {
         return;
       }
 
-      try {
-        const deterministicReply =
-          role === "admin" ? buildAdminDeterministicAiReply(cleanText) : null;
-        const replyText = deterministicReply || (await askAiDetailed(
-          buildRoleAwareAiPrompt(cleanText, role, tenant),
-          userId,
-          "whatsapp",
-          realId,
-        )).text;
-        await safeSendMessage(this.sock, remoteJid, { text: replyText }, { quoted: msg });
-      } catch (error) {
-        console.error("Error dari AI Martinos:", error.message || error);
-        await safeSendMessage(
-          this.sock,
-          remoteJid,
-          {
-            text:
-              "Ngapunten, Ajeng lagi gangguan sebentar. Monggo coba maneh, utawa pakai command menu Martinos nggih.",
-          },
-          { quoted: msg },
-        );
-      }
+      await safeSendMessage(
+        this.sock,
+        remoteJid,
+        { text: buildRoleHelpReply(role, tenant, effectiveRole.isDualRoleTest) },
+        { quoted: msg },
+      );
+      return;
     });
   }
 }
@@ -615,5 +633,6 @@ module.exports = WhatsAppHandler;
 module.exports.getTenantCommandAlias = getTenantCommandAlias;
 module.exports.__test = {
   buildRoleAwareAiPrompt,
+  buildRoleHelpReply,
   getUnavailableCommandReply,
 };

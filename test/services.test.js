@@ -4,14 +4,20 @@ const assert = require('node:assert/strict');
 process.env.SUPABASE_URL ||= 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 
-const { normalizePhone } = require('../src/services/tenantService');
+const { normalizePhone, isAdminIdentifier } = require('../src/services/tenantService');
 const electricityService = require('../src/services/electricityService');
 const supabase = require('../src/lib/supabaseClient');
 
 const realSupabaseFrom = supabase.from;
+const realAdminWaNumbers = process.env.ADMIN_WA_NUMBERS;
+const realAdminWaJids = process.env.ADMIN_WA_JIDS;
 
 test.afterEach(() => {
   supabase.from = realSupabaseFrom;
+  if (realAdminWaNumbers === undefined) delete process.env.ADMIN_WA_NUMBERS;
+  else process.env.ADMIN_WA_NUMBERS = realAdminWaNumbers;
+  if (realAdminWaJids === undefined) delete process.env.ADMIN_WA_JIDS;
+  else process.env.ADMIN_WA_JIDS = realAdminWaJids;
 });
 
 test('normalizePhone returns canonical Indonesian WhatsApp numbers', () => {
@@ -20,6 +26,16 @@ test('normalizePhone returns canonical Indonesian WhatsApp numbers', () => {
   assert.equal(normalizePhone('628123456789@s.whatsapp.net'), '628123456789');
   assert.equal(normalizePhone('628123456789:12@s.whatsapp.net'), '628123456789');
   assert.equal(normalizePhone(''), '');
+});
+
+test('isAdminIdentifier accepts configured phone numbers and raw WhatsApp JIDs', () => {
+  process.env.ADMIN_WA_NUMBERS = '628123456789';
+  process.env.ADMIN_WA_JIDS = '999888777@lid,628987654321@s.whatsapp.net';
+
+  assert.equal(isAdminIdentifier('08123456789@s.whatsapp.net'), true);
+  assert.equal(isAdminIdentifier('999888777@lid'), true);
+  assert.equal(isAdminIdentifier('628987654321@s.whatsapp.net'), true);
+  assert.equal(isAdminIdentifier('111222333@lid'), false);
 });
 
 test('electricity month parsing accepts Indonesian names and numbers', () => {

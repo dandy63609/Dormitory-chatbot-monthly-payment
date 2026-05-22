@@ -43,10 +43,32 @@ function parseAdminNumbers() {
     .filter(Boolean);
 }
 
+function normalizeWhatsAppIdentifier(value) {
+  return String(value || '')
+    .trim()
+    .split(':')[0]
+    .toLowerCase();
+}
+
+function parseAdminJids() {
+  return String(process.env.ADMIN_WA_JIDS || '')
+    .split(/[\s,;|]+/)
+    .map((item) => normalizeWhatsAppIdentifier(item))
+    .filter(Boolean);
+}
+
 function isAdminPhone(phone) {
   const normalized = normalizePhone(phone);
   if (!normalized) return false;
   return parseAdminNumbers().includes(normalized);
+}
+
+function isAdminIdentifier(value) {
+  if (isAdminPhone(value)) return true;
+
+  const normalized = normalizeWhatsAppIdentifier(value);
+  if (!normalized) return false;
+  return parseAdminJids().includes(normalized);
 }
 
 function isDevelopment() {
@@ -165,7 +187,10 @@ async function resolveRole(userId, options = {}) {
   const rawJid = options.rawJid || userId;
 
   try {
-    const adminFound = isAdminPhone(normalizedNumber);
+    const adminFound =
+      isAdminIdentifier(userId)
+      || isAdminIdentifier(rawJid)
+      || isAdminPhone(normalizedNumber);
     const tenant = await getTenantByWhatsAppNumber(normalizedNumber);
     const tenantFound = Boolean(tenant);
     const roleConflict = adminFound && tenantFound;
@@ -200,7 +225,7 @@ async function resolveRole(userId, options = {}) {
     logRoleDebug({
       rawJid,
       normalizedNumber,
-      adminFound: isAdminPhone(normalizedNumber),
+      adminFound: isAdminIdentifier(rawJid) || isAdminPhone(normalizedNumber),
       tenantFound: false,
       role: 'unknown',
     });
@@ -208,7 +233,7 @@ async function resolveRole(userId, options = {}) {
       role: 'unknown',
       tenant: null,
       normalizedNumber,
-      isAdmin: isAdminPhone(normalizedNumber),
+      isAdmin: isAdminIdentifier(rawJid) || isAdminPhone(normalizedNumber),
       tenantFound: false,
       roleConflict: false,
       dualRoleTestMode: isDualRoleTestModeEnabled(),
@@ -221,4 +246,5 @@ module.exports = {
   getTenantByWhatsAppNumber,
   normalizePhone,
   isAdminPhone,
+  isAdminIdentifier,
 };
