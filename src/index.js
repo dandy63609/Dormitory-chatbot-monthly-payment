@@ -60,7 +60,7 @@ async function startWhatsAppBot() {
         waSocket = await connectToWhatsApp();
         
         // Inisialisasi WhatsApp handler hanya setelah koneksi benar-benar terbuka
-        waHandler = new WhatsAppHandler(waSocket);
+        waHandler = new WhatsAppHandler(waSocket, { getSock: () => waSocket });
         console.log('WhatsApp handler berhasil diinisialisasi');
         
         console.log('Bot berhasil terhubung dan siap menerima pesan!');

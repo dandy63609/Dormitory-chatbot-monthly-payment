@@ -477,8 +477,9 @@ function getUnavailableCommandReply(command) {
 }
 
 class WhatsAppHandler {
-  constructor(sock) {
+  constructor(sock, options = {}) {
     this.sock = sock;
+    this.getSock = typeof options.getSock === "function" ? options.getSock : () => this.sock;
     this.listen();
   }
 
@@ -494,7 +495,8 @@ class WhatsAppHandler {
       const userId = isGroup
         ? msg.key.participant || msg.participant || remoteJid
         : remoteJid;
-      const botJid = this.sock.user?.id || "";
+      const activeSock = this.getSock();
+      const botJid = activeSock?.user?.id || this.sock.user?.id || "";
       const botNumber = normalizeWhatsAppId(botJid);
       const contextInfo = getMessageContextInfo(msg);
       const mentionedJids = contextInfo?.mentionedJid || [];
@@ -547,14 +549,14 @@ class WhatsAppHandler {
             ? null
             : buildRoleClaimReply(cleanText, role, tenant);
         if (roleClaimReply) {
-          await safeSendMessage(this.sock, remoteJid, { text: roleClaimReply }, { quoted: msg });
+          await safeSendMessage(this.getSock(), remoteJid, { text: roleClaimReply }, { quoted: msg });
           return;
         }
 
         if (isGreetingText(cleanText)) {
           const greetingReply =
             buildRoleHelpReply(role, tenant, effectiveRole.isDualRoleTest);
-          await safeSendMessage(this.sock, remoteJid, { text: greetingReply }, { quoted: msg });
+          await safeSendMessage(this.getSock(), remoteJid, { text: greetingReply }, { quoted: msg });
           return;
         }
       }
@@ -564,10 +566,10 @@ class WhatsAppHandler {
         realId,
         role,
         tenant,
-        this.sock,
+        this.getSock(),
       );
       if (pendingReply !== null) {
-        await safeSendMessage(this.sock, remoteJid, { text: pendingReply }, { quoted: msg });
+        await safeSendMessage(this.getSock(), remoteJid, { text: pendingReply }, { quoted: msg });
         return;
       }
 
@@ -576,7 +578,8 @@ class WhatsAppHandler {
           msg,
           realId,
           tenant,
-          this.sock,
+          this.getSock(),
+          { getSock: () => this.getSock() },
         );
         if (proofHandled) return;
       }
@@ -600,17 +603,17 @@ class WhatsAppHandler {
           realId,
           role,
           tenant,
-          this.sock,
+          this.getSock(),
           msg,
         );
         const replyText = kosReply !== null ? kosReply : getUnavailableCommandReply(command);
-        await safeSendMessage(this.sock, remoteJid, { text: replyText }, { quoted: msg });
+        await safeSendMessage(this.getSock(), remoteJid, { text: replyText }, { quoted: msg });
         return;
       }
 
       if (cleanText.length <= 2) {
         await safeSendMessage(
-          this.sock,
+          this.getSock(),
           remoteJid,
           { text: "Maaf, pesan terlalu pendek utawa kurang jelas. Ketik /info kanggo lihat menu nggih." },
           { quoted: msg },
@@ -619,7 +622,7 @@ class WhatsAppHandler {
       }
 
       await safeSendMessage(
-        this.sock,
+        this.getSock(),
         remoteJid,
         { text: buildRoleHelpReply(role, tenant, effectiveRole.isDualRoleTest) },
         { quoted: msg },

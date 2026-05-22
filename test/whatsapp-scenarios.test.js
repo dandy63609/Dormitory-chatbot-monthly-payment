@@ -268,6 +268,64 @@ test('WhatsApp proof image before payment method is rejected without forwarding 
   assert.match(sent[0].content.text, /\/cash|\/transfer/);
 });
 
+test('WhatsApp proof upload retries admin forwarding with latest socket after reconnect', async () => {
+  process.env.MARTINOS_ADMIN_WA_JID = '628100000099@s.whatsapp.net';
+  electricityService.getCurrentTenantBill = async () => ({
+    id: 'bill-proof-retry',
+    bulan: 5,
+    tahun: 2026,
+    status_bayar: 'Belum Bayar',
+  });
+
+  const userId = '628100000011@s.whatsapp.net';
+  await handleKosCommand('/bayar_listrik', [], userId, 'tenant', tenant(), fakeSock().sock, null);
+  await handlePendingConfirmation('/transfer', userId, 'tenant', tenant(), fakeSock().sock);
+
+  const oldSockSent = [];
+  const oldSock = {
+    updateMediaMessage: async () => {},
+    sendMessage: async (jid, content, options) => {
+      oldSockSent.push({ jid, content, options });
+      activeSock = newSock;
+      const error = new Error('Timed Out');
+      error.output = { statusCode: 408 };
+      throw error;
+    },
+  };
+
+  const newSockSent = [];
+  const newSock = {
+    sendMessage: async (jid, content, options) => {
+      newSockSent.push({ jid, content, options });
+      return { jid, content, options };
+    },
+  };
+
+  let activeSock = oldSock;
+  const msg = {
+    key: { remoteJid: userId },
+    message: { imageMessage: { mimetype: 'image/jpeg' } },
+  };
+
+  const handled = await handleProofUpload(msg, userId, tenant(), oldSock, {
+    getSock: () => activeSock,
+    retryDelayMs: 0,
+    downloadMediaMessage: async () => Buffer.from('proof-image'),
+  });
+
+  assert.equal(handled, true);
+  assert.equal(oldSockSent.length, 1);
+  assert.equal(oldSockSent[0].jid, '628100000099@s.whatsapp.net');
+  assert.equal(newSockSent.length, 2);
+  assert.equal(newSockSent[0].jid, '628100000099@s.whatsapp.net');
+  assert.ok(newSockSent[0].content.image);
+  const proofCode = newSockSent[0].content.caption.match(/BUKTI-\d+/)?.[0];
+  assert.ok(proofCode);
+  assert.equal(newSockSent[1].jid, userId);
+  assert.match(newSockSent[1].content.text, /bukti pembayaran sampun tak teruske ke admin/);
+  martinosPaymentVerificationService.clearMartinosProofVerification(proofCode);
+});
+
 test('WhatsApp admin manual mark-paid flow waits for YA BAYAR before database update', async () => {
   let updateCalls = 0;
   electricityService.getRoomByCode = async (roomCode) => ({
